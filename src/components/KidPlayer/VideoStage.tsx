@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Film, Sparkles, UploadCloud, AlertCircle } from "../../lib/icons";
+import { Film, Sparkles, UploadCloud, AlertCircle, Mic, Square, MapPin, X, Volume2 } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
 import { openMediaDialog, extractEmbeddedSubtitles } from "../../lib/tauri-bridge";
 import { parseToSentenceCues } from "../../lib/vtt-parser";
+import { subscribeToAudioLevel } from "../../lib/audio-recorder";
 
 export const VideoStage: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -11,18 +12,27 @@ export const VideoStage: React.FC = () => {
   const videoSrc = usePlayerStore((s) => s.videoSrc);
   const videoName = usePlayerStore((s) => s.videoName);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const currentTime = usePlayerStore((s) => s.currentTime);
+  const seekRequest = usePlayerStore((s) => s.seekRequest);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const showSubtitle = usePlayerStore((s) => s.showSubtitle);
-  const targetStopSeconds = usePlayerStore((s) => s.targetStopSeconds);
   const isFullscreen = usePlayerStore((s) => s.isFullscreen);
   const toggleFullscreen = usePlayerStore((s) => s.toggleFullscreen);
   const activeCue = usePlayerStore((s) => (s.activeCueIndex >= 0 ? s.cues[s.activeCueIndex] : null));
 
+  const pendingMarkerStart = usePlayerStore((s) => s.pendingMarkerStart);
+  const lastMarkerNotification = usePlayerStore((s) => s.lastMarkerNotification);
+  const cancelPendingMarker = usePlayerStore((s) => s.cancelPendingMarker);
+  const clearMarkerNotification = usePlayerStore((s) => s.clearMarkerNotification);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [recordDuration, setRecordDuration] = useState<number>(0);
+  const isPlayingRecording = usePlayerStore((s) => s.isPlayingRecording);
+  const isRecording = usePlayerStore((s) => s.isRecording);
+  const recordingCueId = usePlayerStore((s) => s.recordingCueId);
+  const stopRecordingCue = usePlayerStore((s) => s.stopRecordingCue);
+
   const setCurrentTime = usePlayerStore((s) => s.setCurrentTime);
   const setDuration = usePlayerStore((s) => s.setDuration);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
-  const pauseAtSentenceEnd = usePlayerStore((s) => s.pauseAtSentenceEnd);
   const setMedia = usePlayerStore((s) => s.setMedia);
   const setCues = usePlayerStore((s) => s.setCues);
   const loadSampleDemo = usePlayerStore((s) => s.loadSampleDemo);
@@ -30,27 +40,68 @@ export const VideoStage: React.FC = () => {
   useEffect(() => {
     setVideoError(null);
   }, [videoSrc]);
-
-  // Sync isPlaying state to video element
+  // Subscribe to live audio volume levels and track recording seconds
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!isRecording) {
+      setAudioLevel(0);
+      setRecordDuration(0);
+      return;
+    }
+
+    const unsubscribe = subscribeToAudioLevel((lvl) => {
+      setAudioLevel(lvl);
+    });
+
+    const timer = setInterval(() => {
+      setRecordDuration((prev) => prev + 1);
+    }, 1000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(timer);
+    };
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (lastMarkerNotification) {
+      const timer = setTimeout(() => {
+        clearMarkerNotification();
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [lastMarkerNotification, clearMarkerNotification]);
+
+
+  // Sync explicit one-shot seek requests (zero playback interference)
+  useEffect(() => {
+    if (!videoRef.current || seekRequest === null) return;
+    videoRef.current.currentTime = seekRequest;
+    usePlayerStore.setState({ seekRequest: null });
+  }, [seekRequest]);
+
+  // Sync isPlaying state safely with native video element
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
     if (isPlaying) {
-      videoRef.current.play().catch((err) => {
-        console.warn("Video playback interrupted or pending user interaction:", err);
-      });
+      if (video.paused) {
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn("Video playback interrupted or waiting for user interaction:", err);
+            if (video.paused && usePlayerStore.getState().isPlaying) {
+              usePlayerStore.setState({ isPlaying: false });
+            }
+          });
+        }
+      }
     } else {
-      videoRef.current.pause();
+      if (!video.paused) {
+        video.pause();
+      }
     }
   }, [isPlaying]);
-
-  // Sync seek when currentTime changes significantly (from jumpToCue or replay)
-  useEffect(() => {
-    if (!videoRef.current) return;
-    const diff = Math.abs(videoRef.current.currentTime - currentTime);
-    if (diff > 0.3) {
-      videoRef.current.currentTime = currentTime;
-    }
-  }, [currentTime]);
 
   // Sync playback rate
   useEffect(() => {
@@ -59,20 +110,10 @@ export const VideoStage: React.FC = () => {
     }
   }, [playbackRate]);
 
-  // Handle timeupdate & Little Fox Auto-pause
+  // Handle timeupdate from hardware decoder
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
-    const current = videoRef.current.currentTime;
-
-    // Check sentence auto-stop condition: lock and stay on current sentence
-    if (targetStopSeconds !== null && current >= targetStopSeconds) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = targetStopSeconds;
-      pauseAtSentenceEnd(targetStopSeconds);
-      return;
-    }
-
-    setCurrentTime(current);
+    setCurrentTime(videoRef.current.currentTime);
   };
 
   const handleLoadedMetadata = () => {
@@ -128,6 +169,16 @@ export const VideoStage: React.FC = () => {
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => setIsPlaying(false)}
+            onPlay={() => {
+              if (!usePlayerStore.getState().isPlaying) {
+                usePlayerStore.setState({ isPlaying: true });
+              }
+            }}
+            onPause={() => {
+              if (usePlayerStore.getState().isPlaying) {
+                usePlayerStore.setState({ isPlaying: false, targetStopSeconds: null });
+              }
+            }}
             onError={(e) => {
               const target = e.currentTarget;
               const err = target.error;
@@ -140,6 +191,81 @@ export const VideoStage: React.FC = () => {
             }}
             playsInline
           />
+
+          {/* Live Sentence Marking Banner ("Làm dấu") */}
+          {pendingMarkerStart !== null && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-amber-950/95 border border-amber-400/80 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 z-30 animate-in fade-in zoom-in-95 duration-200">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+              <div className="flex items-center gap-1.5 text-xs text-amber-200 font-bold">
+                <MapPin className="w-4 h-4 text-amber-400" />
+                <span>Đang làm dấu câu... Bấm [M] hoặc nút "Chốt câu" khi dứt câu!</span>
+              </div>
+              <button
+                onClick={cancelPendingMarker}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium transition-colors cursor-pointer"
+                title="Hủy mốc này (Esc)"
+              >
+                <X className="w-3 h-3" />
+                <span>Hủy (Esc)</span>
+              </button>
+            </div>
+          )}
+
+          {/* Fleeting Marker Notification Toast */}
+          {lastMarkerNotification && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-slate-700/80 backdrop-blur-md px-4 py-1.5 rounded-full shadow-xl flex items-center gap-2 z-25 animate-in fade-in slide-in-from-top-2 duration-200">
+              <span className="text-xs text-slate-100 font-semibold">{lastMarkerNotification}</span>
+            </div>
+          )}
+
+          {/* Floating Recording Indicator for Kid Shadowing with Live VU Meter */}
+          {isRecording && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-rose-950/95 border-2 border-rose-500/80 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 z-30 animate-in fade-in zoom-in-95 duration-200">
+              <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+              
+              <div className="flex items-center gap-2 text-xs text-rose-100 font-semibold">
+                <Mic className="w-4 h-4 text-rose-400" />
+                <span>Bé đang đọc Câu {recordingCueId}</span>
+                <span className="font-mono text-amber-300 font-bold bg-rose-900/60 px-1.5 py-0.5 rounded">
+                  00:{recordDuration.toString().padStart(2, "0")}s
+                </span>
+              </div>
+
+              {/* Live Animated Audio Level VU Meter */}
+              <div className="flex items-end gap-1 h-4 px-1" title="Mức âm lượng microphone">
+                {[0.4, 0.7, 1.0, 0.6, 0.3].map((factor, i) => {
+                  const barHeight = Math.max(3, Math.min(16, (audioLevel / 100) * 16 * factor + 3));
+                  return (
+                    <div
+                      key={i}
+                      style={{ height: `${barHeight}px` }}
+                      className={`w-1 rounded-full transition-all duration-75 ${
+                        audioLevel > 15 ? "bg-emerald-400 shadow-sm shadow-emerald-400/50" : "bg-rose-400/60"
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => stopRecordingCue()}
+                className="flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow hover:scale-105 active:scale-95"
+              >
+                <Square className="w-2.5 h-2.5 fill-white" />
+                <span>Xong (V)</span>
+              </button>
+            </div>
+          )}
+
+          {/* Floating Pill when Playing Recorded Voice */}
+          {isPlayingRecording && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-950/95 border border-emerald-500/80 backdrop-blur-md px-4 py-1.5 rounded-full shadow-2xl flex items-center gap-2.5 z-30 animate-in fade-in zoom-in-95 duration-200">
+              <Volume2 className="w-4 h-4 text-emerald-400 animate-bounce" />
+              <span className="text-xs text-emerald-100 font-bold">
+                🔊 Đang phát lại giọng đọc của bé...
+              </span>
+            </div>
+          )}
 
           {/* Video Error Overlay with Easy Reconnect Button */}
           {videoError && (

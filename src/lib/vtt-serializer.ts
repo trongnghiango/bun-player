@@ -1,4 +1,4 @@
-import { SentenceCue } from "./types";
+import type { SentenceCue } from "./types.ts";
 
 /**
  * Formats seconds into WebVTT timestamp (HH:MM:SS.mmm)
@@ -22,17 +22,14 @@ export function formatVttTimestamp(seconds: number): string {
  * Serializes SentenceCue[] array back into standard WebVTT format
  */
 export function serializeToVtt(cues: SentenceCue[]): string {
-  let output = "WEBVTT - Exported from Little Fox Desktop Player\n\n";
+  const chunks: string[] = ["WEBVTT - Exported from Little Fox Desktop Player\n\n"];
 
   for (let i = 0; i < cues.length; i++) {
     const cue = cues[i];
-    const start = formatVttTimestamp(cue.startTime);
-    const end = formatVttTimestamp(cue.endTime);
-
-    output += `${cue.id}\n`;
-    output += `${start} --> ${end}\n`;
-    output += `${cue.text}\n\n`;
+    chunks.push(
+      `${cue.id}\n${formatVttTimestamp(cue.startTime)} --> ${formatVttTimestamp(cue.endTime)}\n${cue.text}\n\n`
+    );
   }
 
-  return output;
+  return chunks.join("");
 }

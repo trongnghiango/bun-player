@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight } from "../../lib/icons";
+import { ChevronLeft, ChevronRight, Star } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
 
 const ITEMS_PER_PAGE = 7;
@@ -7,6 +7,7 @@ const ITEMS_PER_PAGE = 7;
 export const SentencePagination: React.FC = () => {
   const cues = usePlayerStore((s) => s.cues);
   const activeCueIndex = usePlayerStore((s) => s.activeCueIndex);
+  const recordedVoices = usePlayerStore((s) => s.recordedVoices);
   const jumpToCue = usePlayerStore((s) => s.jumpToCue);
   const [currentPage, setCurrentPage] = useState(0);
 
@@ -41,6 +42,7 @@ export const SentencePagination: React.FC = () => {
         {currentCues.map((cue, idx) => {
           const globalIdx = startIdx + idx;
           const isActive = globalIdx === activeCueIndex;
+          const hasRecording = !!recordedVoices[cue.id];
 
           return (
             <button
@@ -51,11 +53,26 @@ export const SentencePagination: React.FC = () => {
                   ? "bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 scale-110 shadow-amber-500/40 ring-4 ring-amber-400/20"
                   : "bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700/60"
               }`}
-              title={`Câu ${cue.id}: ${cue.text}`}
+              title={`Câu ${cue.id}: ${cue.text}${hasRecording ? " (Đã có bản thu âm giọng bé ⭐)" : ""}`}
             >
               <span>{cue.id}</span>
+
+              {/* Gold Star Badge for Child Shadowing Completion */}
+              {hasRecording && (
+                <span
+                  className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-amber-400/90 ring-2 ring-slate-900 flex items-center justify-center text-slate-950 shadow"
+                  title="Bé đã luyện đọc câu này!"
+                >
+                  <Star className="w-2.5 h-2.5 fill-slate-950" />
+                </span>
+              )}
+
+              {/* Green Dot for Parent Timing Adjustment */}
               {cue.isAdjusted && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-slate-900" />
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-slate-900"
+                  title="Phụ huynh đã chỉnh sửa mốc thời gian"
+                />
               )}
             </button>
           );

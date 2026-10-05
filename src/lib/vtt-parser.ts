@@ -1,4 +1,4 @@
-import { RawCue, SentenceCue } from "./types";
+import type { RawCue, SentenceCue } from "./types.ts";
 
 /**
  * Parses timestamp string (00:00:01.000 or 00:01,000) into seconds

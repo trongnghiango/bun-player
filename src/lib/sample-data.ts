@@ -1,4 +1,4 @@
-import { SentenceCue } from "./types";
+import type { SentenceCue } from "./types.ts";
 
 export const SAMPLE_STORY_TITLE = "Star Light, Star Bright (Sample Story)";
 

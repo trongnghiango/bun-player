@@ -1,11 +1,12 @@
-import { isTauri } from "./tauri-bridge";
-import { SentenceCue } from "./types";
+import { isTauri } from "./tauri-bridge.ts";
+import type { SentenceCue } from "./types.ts";
 
 export interface ProjectCacheData {
   videoName: string;
   videoSrc: string | null;
   subtitlePath: string | null;
   cues: SentenceCue[];
+  sentenceLoopTarget?: number;
   savedAt: string;
 }
 

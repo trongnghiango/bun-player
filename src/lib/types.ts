@@ -11,3 +11,17 @@ export interface RawCue {
   endTime: number;
   text: string;
 }
+
+export type LoopTarget = 1 | 2 | 3 | typeof Infinity;
+
+export interface VoiceRecordingItem {
+  cueId: number;
+  audioUrl: string;
+  duration: number;
+  recordedAt: string;
+}
+export interface MarkerResult {
+  type: "start" | "end" | "ignored";
+  cue?: SentenceCue;
+  time: number;
+}

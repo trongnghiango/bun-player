@@ -115,6 +115,10 @@ pub fn run() {
     init_stream_server();
 
     tauri::Builder::default()
+        .on_permission_request(|_webview, kind| match kind {
+            tauri::webview::PermissionKind::Microphone => tauri::webview::PermissionResponse::Allow,
+            _ => tauri::webview::PermissionResponse::Allow,
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![

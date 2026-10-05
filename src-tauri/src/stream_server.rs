@@ -167,21 +167,9 @@ fn handle_client(stream: &mut std::net::TcpStream) {
         return;
     }
 
-    // Stream chunk to client in 64KB blocks
-    let mut remaining = content_len;
-    let mut chunk_buf = [0u8; 64 * 1024];
-
-    while remaining > 0 {
-        let to_read = remaining.min(chunk_buf.len() as u64) as usize;
-        let n = match file.read(&mut chunk_buf[..to_read]) {
-            Ok(n) if n > 0 => n,
-            _ => break,
-        };
-        if stream.write_all(&chunk_buf[..n]).is_err() {
-            break;
-        }
-        remaining -= n as u64;
-    }
+    // High-performance streaming: stream exact bytes directly via std::io::copy
+    let mut reader = file.take(content_len);
+    let _ = std::io::copy(&mut reader, stream);
 }
 
 fn decode_percent(input: &str) -> String {

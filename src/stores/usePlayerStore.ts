@@ -1,11 +1,19 @@
 import { create } from "zustand";
-import { SentenceCue } from "../lib/types";
-import { SAMPLE_CUES, SAMPLE_STORY_TITLE, SAMPLE_VIDEO_URL } from "../lib/sample-data";
-import { autoMergeShortCues, autoSplitLongCues } from "../lib/vtt-parser";
-import { saveProjectCache, loadProjectCache, clearProjectCache } from "../lib/cache-storage";
-import { resolveMediaUrl } from "../lib/tauri-bridge";
+import type { SentenceCue, LoopTarget, MarkerResult } from "../lib/types.ts";
+import { SAMPLE_CUES, SAMPLE_STORY_TITLE, SAMPLE_VIDEO_URL } from "../lib/sample-data.ts";
+import { autoMergeShortCues, autoSplitLongCues } from "../lib/vtt-parser.ts";
+import { saveProjectCache, loadProjectCache, clearProjectCache } from "../lib/cache-storage.ts";
+import { resolveMediaUrl } from "../lib/tauri-bridge.ts";
+import {
+  startMicrophoneRecording,
+  stopMicrophoneRecording,
+  playRecordedVoice,
+  stopPlayingRecordedVoice,
+  revokeAudioUrlSafely,
+  stopMicrophoneRecordingSilently,
+} from "../lib/audio-recorder.ts";
 
-interface PlayerStore {
+export interface PlayerStore {
   // Media State
   videoSrc: string | null;
   videoName: string;
@@ -16,6 +24,7 @@ interface PlayerStore {
 
   // Playback State
   currentTime: number;
+  seekRequest: number | null;
   duration: number;
   isPlaying: boolean;
   activeCueIndex: number;
@@ -25,10 +34,22 @@ interface PlayerStore {
   // Learning / Mode Toggles
   showSubtitle: boolean; // default false for kids
   autoPause: boolean;    // default true for sentence-by-sentence pacing
+  sentenceLoopTarget: LoopTarget; // 1, 2, 3, or Infinity
+  currentSentenceLoopCount: number; // tracks repetitions of current sentence
   isEditorOpen: boolean;
   isFullscreen: boolean;
   showSentencesInFullscreen: boolean;
 
+  // Voice Shadowing State
+  recordedVoices: Record<number, string>; // cueId -> blob URL
+  recordedDurations: Record<number, number>; // cueId -> duration in seconds
+  isRecording: boolean;
+  recordingCueId: number | null;
+  isPlayingRecording: boolean;
+
+  // Live Marking State
+  pendingMarkerStart: number | null;
+  lastMarkerNotification: string | null;
   // Actions
   setMedia: (url: string, name: string, path?: string | null, file?: File | null) => void;
   setCues: (cues: SentenceCue[], path?: string) => void;
@@ -44,10 +65,14 @@ interface PlayerStore {
   autoSplitLong: (maxWords?: number) => void;
   pauseAtSentenceEnd: (endTime: number) => void;
   setCurrentTime: (time: number) => void;
+  seekToTime: (time: number) => void;
   setDuration: (duration: number) => void;
   setIsPlaying: (isPlaying: boolean) => void;
   setPlaybackRate: (rate: number) => void;
   setTargetStopSeconds: (seconds: number | null) => void;
+  setSentenceLoopTarget: (target: LoopTarget) => void;
+  cycleSentenceLoopTarget: () => void;
+  incrementLoopAndReplay: () => void;
 
   toggleSubtitle: () => void;
   toggleAutoPause: () => void;
@@ -62,6 +87,17 @@ interface PlayerStore {
   loadSampleDemo: () => void;
   restoreFromCache: () => Promise<boolean>;
   clearProject: () => Promise<void>;
+
+  // Shadowing Actions
+  startRecordingCue: (cueId: number) => Promise<boolean>;
+  stopRecordingCue: () => Promise<string | null>;
+  playRecordingForCue: (cueId: number) => void;
+  stopPlayingRecording: () => void;
+  deleteRecordingForCue: (cueId: number) => void;
+  clearAllRecordings: () => void;
+  toggleMarkerAtCurrentTime: () => MarkerResult;
+  cancelPendingMarker: () => void;
+  clearMarkerNotification: () => void;
 }
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,10 +111,11 @@ function queueAutoSave(get: () => PlayerStore) {
         videoSrc: state.videoSrc,
         subtitlePath: state.subtitlePath,
         cues: state.cues,
+        sentenceLoopTarget: state.sentenceLoopTarget === Infinity ? 999 : state.sentenceLoopTarget,
         savedAt: new Date().toISOString(),
       });
     }
-  }, 250);
+  }, 600);
 }
 
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
@@ -90,6 +127,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   cues: [],
 
   currentTime: 0,
+  seekRequest: null,
   duration: 0,
   isPlaying: false,
   activeCueIndex: -1,
@@ -98,18 +136,35 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   showSubtitle: false, // Default false: Image & Video first for kids
   autoPause: true,     // Default true: Little Fox style sentence pause
+  sentenceLoopTarget: 1, // Default 1x
+  currentSentenceLoopCount: 0,
   isEditorOpen: false,
   isFullscreen: false,
   showSentencesInFullscreen: true, // Sentence buttons visible and clickable in fullscreen
 
+  recordedVoices: {},
+  recordedDurations: {},
+  isRecording: false,
+  recordingCueId: null,
+  isPlayingRecording: false,
+  pendingMarkerStart: null,
+  lastMarkerNotification: null,
+
   setMedia: (url, name, path = null, file = null) => {
+    const prevSrc = get().videoSrc;
+    if (prevSrc && prevSrc !== url) {
+      revokeAudioUrlSafely(prevSrc);
+    }
+
     set({
       videoSrc: url,
       videoName: name,
       videoPath: path,
       videoFile: file,
       currentTime: 0,
+      seekRequest: 0,
       activeCueIndex: -1,
+      currentSentenceLoopCount: 0,
     });
     queueAutoSave(get);
   },
@@ -119,6 +174,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       cues,
       subtitlePath: path || null,
       activeCueIndex: cues.length > 0 ? 0 : -1,
+      currentSentenceLoopCount: 0,
     });
     queueAutoSave(get);
   },
@@ -326,13 +382,25 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       if (resolvedSrc) {
         resolvedSrc = await resolveMediaUrl(resolvedSrc);
       }
+
+      let restoredLoopTarget: LoopTarget = 1;
+      if (cached.sentenceLoopTarget) {
+        if (cached.sentenceLoopTarget === 999) restoredLoopTarget = Infinity;
+        else if ([1, 2, 3].includes(cached.sentenceLoopTarget)) {
+          restoredLoopTarget = cached.sentenceLoopTarget as LoopTarget;
+        }
+      }
+
       set({
         videoName: cached.videoName || "",
         videoSrc: resolvedSrc,
         subtitlePath: cached.subtitlePath || null,
         cues: cached.cues,
+        sentenceLoopTarget: restoredLoopTarget,
+        currentSentenceLoopCount: 0,
         activeCueIndex: 0,
         currentTime: cached.cues[0]?.startTime || 0,
+        seekRequest: cached.cues[0]?.startTime || 0,
       });
       return true;
     }
@@ -343,72 +411,196 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     const { activeCueIndex } = get();
     set({
       currentTime: endTime,
+      seekRequest: endTime,
       isPlaying: false,
       targetStopSeconds: null,
+      currentSentenceLoopCount: 0,
       // Strictly maintain the sentence that just finished speaking!
       activeCueIndex: activeCueIndex >= 0 ? activeCueIndex : 0,
     });
   },
 
-  setCurrentTime: (time) => {
-    const { cues, autoPause, targetStopSeconds, activeCueIndex, isPlaying } = get();
+  setSentenceLoopTarget: (sentenceLoopTarget) => {
+    set({ sentenceLoopTarget, currentSentenceLoopCount: 0 });
+    queueAutoSave(get);
+  },
 
-    // 1. Check if auto-pause threshold is reached
-    if (autoPause && targetStopSeconds !== null && time >= targetStopSeconds) {
+  cycleSentenceLoopTarget: () => {
+    const { sentenceLoopTarget } = get();
+    let next: LoopTarget = 1;
+    if (sentenceLoopTarget === 1) next = 2;
+    else if (sentenceLoopTarget === 2) next = 3;
+    else if (sentenceLoopTarget === 3) next = Infinity;
+    else next = 1;
+
+    set({ sentenceLoopTarget: next, currentSentenceLoopCount: 0 });
+    queueAutoSave(get);
+  },
+
+  incrementLoopAndReplay: () => {
+    const { activeCueIndex, cues, currentSentenceLoopCount } = get();
+    if (activeCueIndex >= 0 && activeCueIndex < cues.length) {
+      const cue = cues[activeCueIndex];
+      set({
+        currentTime: cue.startTime,
+        seekRequest: cue.startTime,
+        currentSentenceLoopCount: currentSentenceLoopCount + 1,
+        isPlaying: true,
+        targetStopSeconds: cue.endTime,
+      });
+    }
+  },
+
+  setCurrentTime: (time) => {
+    const {
+      cues,
+      autoPause,
+      targetStopSeconds,
+      activeCueIndex,
+      isPlaying,
+      currentSentenceLoopCount,
+      sentenceLoopTarget,
+      incrementLoopAndReplay,
+    } = get();
+
+    // 1. Auto-pause check: ONLY evaluate when actively playing and target is armed!
+    if (autoPause && isPlaying && targetStopSeconds !== null && time >= targetStopSeconds - 0.05) {
+      if (currentSentenceLoopCount + 1 < sentenceLoopTarget) {
+        incrementLoopAndReplay();
+        return;
+      }
+
       set({
         currentTime: targetStopSeconds,
         isPlaying: false,
         targetStopSeconds: null,
-        // Stay on the finished sentence! Do NOT jump to the next one!
+        currentSentenceLoopCount: 0,
         activeCueIndex: activeCueIndex >= 0 ? activeCueIndex : 0,
       });
       return;
     }
 
-    // 2. If video is paused in sentence-by-sentence mode, do not shift activeCueIndex
-    if (autoPause && !isPlaying) {
-      set({ currentTime: time });
-      return;
-    }
-
-    // 3. Keep current cue if time is still within its interval
+    // 2. High-performance O(1) cue boundary check:
+    // In 95%+ of animation frames, time is still within the current active cue
     if (activeCueIndex >= 0 && activeCueIndex < cues.length) {
       const cur = cues[activeCueIndex];
       if (time >= cur.startTime && time < cur.endTime) {
         set({ currentTime: time });
         return;
       }
+
+      // Check next adjacent cue first (covers linear spoken progression in O(1))
+      if (activeCueIndex + 1 < cues.length) {
+        const next = cues[activeCueIndex + 1];
+        if (time >= next.startTime && time < next.endTime) {
+          set({
+            currentTime: time,
+            activeCueIndex: activeCueIndex + 1,
+          });
+          return;
+        }
+      }
     }
 
-    // 4. Locate which sentence is currently active (using < endTime to prevent boundary clash)
-    const activeIdx = cues.findIndex((c) => time >= c.startTime && time < c.endTime);
+    // 3. Fallback: Binary or linear scan only upon discontinuous scrub/seek
+    let activeIdx = cues.findIndex((c) => time >= c.startTime && time < c.endTime);
+    if (activeIdx === -1) {
+      if (cues.length > 0 && time < cues[0].startTime) {
+        activeIdx = 0;
+      } else {
+        activeIdx = activeCueIndex;
+      }
+    }
+
     set({
       currentTime: time,
       activeCueIndex: activeIdx >= 0 ? activeIdx : activeCueIndex,
     });
   },
 
+  seekToTime: (time) => {
+    const { cues, autoPause, isPlaying, duration } = get();
+    const clamped = Math.max(0, Math.min(duration > 0 ? duration : time, time));
+
+    let newIdx = cues.findIndex((c) => clamped >= c.startTime && clamped < c.endTime);
+    if (newIdx === -1 && cues.length > 0) {
+      if (clamped < cues[0].startTime) {
+        newIdx = 0;
+      } else {
+        const upcoming = cues.findIndex((c) => c.startTime > clamped);
+        newIdx = upcoming >= 0 ? upcoming : cues.length - 1;
+      }
+    }
+
+    let newTargetStop: number | null = null;
+    if (autoPause && isPlaying) {
+      const cur = newIdx >= 0 ? cues[newIdx] : null;
+      if (cur && cur.endTime > clamped + 0.1) {
+        newTargetStop = cur.endTime;
+      }
+    }
+
+    set({
+      currentTime: clamped,
+      seekRequest: clamped,
+      activeCueIndex: newIdx,
+      targetStopSeconds: newTargetStop,
+      currentSentenceLoopCount: 0,
+    });
+  },
+
   setDuration: (duration) => set({ duration }),
 
   setIsPlaying: (isPlaying) => {
-    const { cues, activeCueIndex, currentTime, autoPause, targetStopSeconds, jumpToCue } = get();
+    const { cues, activeCueIndex, currentTime, autoPause, jumpToCue } = get();
+
     if (isPlaying) {
       const currentCue = activeCueIndex >= 0 ? cues[activeCueIndex] : null;
-      // If paused at the end of the current sentence and user hits play, move to next sentence!
-      if (autoPause && currentCue && currentTime >= currentCue.endTime - 0.1) {
+
+      // If paused at the end of the current sentence:
+      if (autoPause && currentCue && currentTime >= currentCue.endTime - 0.15) {
         if (activeCueIndex < cues.length - 1) {
           jumpToCue(activeCueIndex + 1);
           return;
+        } else {
+          // At the end of the very last cue: Allow video to play freely without deadlock!
+          set({
+            isPlaying: true,
+            targetStopSeconds: null,
+            currentSentenceLoopCount: 0,
+          });
+          return;
         }
       }
-      // If resuming current sentence midway
-      if (autoPause && currentCue && targetStopSeconds === null) {
-        set({ isPlaying: true, targetStopSeconds: currentCue.endTime });
-        return;
+
+      // If resuming within a sentence or in a gap:
+      let nextTargetStop: number | null = null;
+      if (autoPause) {
+        let activeIdx = cues.findIndex((c) => currentTime >= c.startTime && currentTime < c.endTime);
+        if (activeIdx === -1 && cues.length > 0) {
+          const upcoming = cues.findIndex((c) => c.startTime > currentTime);
+          activeIdx = upcoming >= 0 ? upcoming : cues.length - 1;
+        }
+        const cur = activeIdx >= 0 ? cues[activeIdx] : null;
+        if (cur && cur.endTime > currentTime + 0.1) {
+          nextTargetStop = cur.endTime;
+        }
       }
+
+      set({
+        isPlaying: true,
+        targetStopSeconds: nextTargetStop,
+      });
+      return;
     }
-    set({ isPlaying, targetStopSeconds: isPlaying ? targetStopSeconds : null });
+
+    // Always clear targetStopSeconds when pausing to prevent lingering traps
+    set({
+      isPlaying: false,
+      targetStopSeconds: null,
+    });
   },
+
   setPlaybackRate: (playbackRate) => set({ playbackRate }),
   setTargetStopSeconds: (targetStopSeconds) => set({ targetStopSeconds }),
 
@@ -431,21 +623,23 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       }
     }
 
-    if (!document.fullscreenElement) {
-      try {
-        await document.documentElement.requestFullscreen();
-        set({ isFullscreen: true });
-      } catch (err) {
-        console.warn("Fullscreen request error:", err);
-      }
-    } else {
-      try {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
+    if (typeof document !== "undefined") {
+      if (!document.fullscreenElement) {
+        try {
+          await document.documentElement.requestFullscreen();
+          set({ isFullscreen: true });
+        } catch (err) {
+          console.warn("Fullscreen request error:", err);
         }
-        set({ isFullscreen: false });
-      } catch (err) {
-        console.warn("Exit fullscreen error:", err);
+      } else {
+        try {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          }
+          set({ isFullscreen: false });
+        } catch (err) {
+          console.warn("Exit fullscreen error:", err);
+        }
       }
     }
   },
@@ -460,6 +654,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       set({
         activeCueIndex: index,
         currentTime: cue.startTime,
+        seekRequest: cue.startTime,
+        currentSentenceLoopCount: 0,
         isPlaying: true,
         targetStopSeconds: autoPause ? cue.endTime : null,
       });
@@ -474,6 +670,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       set({
         activeCueIndex: idx,
         currentTime: cue.startTime,
+        seekRequest: cue.startTime,
+        currentSentenceLoopCount: 0,
         isPlaying: true,
         targetStopSeconds: autoPause ? cue.endTime : null,
       });
@@ -496,7 +694,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   loadSampleDemo: () => {
     const { cues } = get();
-    if (cues.length > 0) {
+    if (cues.length > 0 && typeof window !== "undefined" && window.confirm) {
       const ok = window.confirm("Bạn đang có các câu thoại đã chỉnh sửa. Bạn có chắc muốn nạp video mẫu và ghi đè không?");
       if (!ok) return;
     }
@@ -506,6 +704,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       cues: SAMPLE_CUES,
       activeCueIndex: 0,
       currentTime: 0,
+      seekRequest: 0,
+      currentSentenceLoopCount: 0,
       isPlaying: false,
       targetStopSeconds: null,
     });
@@ -514,6 +714,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
 
   clearProject: async () => {
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    const { videoSrc, recordedVoices } = get();
+
+    // Revoke previous video blob if any
+    revokeAudioUrlSafely(videoSrc);
+
+    // Revoke all voice recordings
+    Object.values(recordedVoices).forEach((url) => revokeAudioUrlSafely(url));
+    stopMicrophoneRecordingSilently();
+    stopPlayingRecordedVoice();
+
     await clearProjectCache();
     set({
       videoSrc: null,
@@ -523,10 +733,186 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       subtitlePath: null,
       cues: [],
       currentTime: 0,
+      seekRequest: null,
       duration: 0,
       isPlaying: false,
       activeCueIndex: -1,
       targetStopSeconds: null,
+      currentSentenceLoopCount: 0,
+      recordedVoices: {},
+      recordedDurations: {},
+      isRecording: false,
+      recordingCueId: null,
+      isPlayingRecording: false,
+      pendingMarkerStart: null,
+      lastMarkerNotification: null,
     });
+  },
+
+  // Shadowing & Kid Voice Actions
+  startRecordingCue: async (cueId: number) => {
+    // If video is currently playing, pause it so mic doesn't capture speaker sound
+    if (get().isPlaying) {
+      set({ isPlaying: false });
+    }
+
+    try {
+      await startMicrophoneRecording();
+      set({ isRecording: true, recordingCueId: cueId });
+      return true;
+    } catch (err) {
+      console.warn("Could not start microphone recording:", err);
+      set({ isRecording: false, recordingCueId: null });
+      return false;
+    }
+  },
+
+  stopRecordingCue: async () => {
+    const { recordingCueId, recordedVoices } = get();
+    if (recordingCueId === null) {
+      stopMicrophoneRecordingSilently();
+      set({ isRecording: false });
+      return null;
+    }
+
+    const res = await stopMicrophoneRecording();
+    if (res) {
+      if (recordedVoices[recordingCueId]) {
+        revokeAudioUrlSafely(recordedVoices[recordingCueId]);
+      }
+
+      const updated = {
+        ...recordedVoices,
+        [recordingCueId]: res.url,
+      };
+      const updatedDurations = {
+        ...get().recordedDurations,
+        [recordingCueId]: res.duration,
+      };
+
+      set({
+        recordedVoices: updated,
+        recordedDurations: updatedDurations,
+        isRecording: false,
+        recordingCueId: null,
+        lastMarkerNotification: `🎉 Đã lưu giọng bé câu ${recordingCueId} (${res.duration}s)! Bấm nút "Giọng bé" để nghe lại.`,
+      });
+      return res.url;
+    }
+
+    set({
+      isRecording: false,
+      recordingCueId: null,
+      lastMarkerNotification: "⚠️ Chưa thu được âm thanh (vui lòng nói to hơn hoặc cấp quyền micro)",
+    });
+    return null;
+  },
+
+  playRecordingForCue: (cueId: number) => {
+    const { recordedVoices, isPlaying } = get();
+    const url = recordedVoices[cueId];
+    if (!url) return;
+
+    // Pause video if playing
+    if (isPlaying) {
+      set({ isPlaying: false });
+    }
+
+    set({ isPlayingRecording: true });
+    playRecordedVoice(
+      url,
+      () => set({ isPlayingRecording: false }),
+      () => set({ isPlayingRecording: false })
+    );
+  },
+
+  stopPlayingRecording: () => {
+    stopPlayingRecordedVoice();
+    set({ isPlayingRecording: false });
+  },
+
+  deleteRecordingForCue: (cueId: number) => {
+    const { recordedVoices } = get();
+    if (recordedVoices[cueId]) {
+      revokeAudioUrlSafely(recordedVoices[cueId]);
+      const next = { ...recordedVoices };
+      delete next[cueId];
+      const nextDurations = { ...get().recordedDurations };
+      delete nextDurations[cueId];
+      set({ recordedVoices: next, recordedDurations: nextDurations });
+    }
+  },
+
+
+  toggleMarkerAtCurrentTime: () => {
+    const { currentTime, pendingMarkerStart, cues, duration } = get();
+    const now = Math.round(currentTime * 1000) / 1000;
+
+    if (pendingMarkerStart === null) {
+      const mins = Math.floor(now / 60);
+      const secs = (now % 60).toFixed(1);
+      const timeLabel = `${mins}:${secs.padStart(4, "0")}`;
+      set({
+        pendingMarkerStart: now,
+        lastMarkerNotification: `📍 Bắt đầu câu: ${timeLabel}. Bấm phím lần nữa khi dứt câu!`,
+      });
+      return { type: "start", time: now };
+    }
+
+    let start = pendingMarkerStart;
+    let end = now;
+
+    if (end < start) {
+      const tmp = start;
+      start = end;
+      end = tmp;
+    }
+
+    if (end - start < 0.15) {
+      return { type: "ignored", time: now };
+    }
+
+    const nextId = cues.length + 1;
+    const newCue: SentenceCue = {
+      id: nextId,
+      startTime: Math.max(0, start),
+      endTime: Math.min(duration > 0 ? duration : end, end),
+      text: `Câu ${nextId}`,
+      isAdjusted: true,
+    };
+
+    const newCues = [...cues, newCue]
+      .sort((a, b) => a.startTime - b.startTime)
+      .map((c, i) => ({ ...c, id: i + 1 }));
+
+    const activeIdx = newCues.findIndex((c) => c.startTime === newCue.startTime);
+
+    const sMins = Math.floor(start / 60);
+    const sSecs = (start % 60).toFixed(1);
+    const eMins = Math.floor(end / 60);
+    const eSecs = (end % 60).toFixed(1);
+
+    set({
+      cues: newCues,
+      pendingMarkerStart: null,
+      activeCueIndex: activeIdx >= 0 ? activeIdx : get().activeCueIndex,
+      lastMarkerNotification: `✨ Đã tạo Câu ${activeIdx >= 0 ? activeIdx + 1 : nextId} (${sMins}:${sSecs} ➔ ${eMins}:${eSecs})`,
+    });
+
+    queueAutoSave(get);
+    return { type: "end", cue: newCue, time: now };
+  },
+
+  cancelPendingMarker: () => {
+    set({ pendingMarkerStart: null, lastMarkerNotification: "Đã hủy mốc làm dấu." });
+  },
+
+  clearMarkerNotification: () => {
+    set({ lastMarkerNotification: null });
+  },
+  clearAllRecordings: () => {
+    const { recordedVoices } = get();
+    Object.values(recordedVoices).forEach((url) => revokeAudioUrlSafely(url));
+    set({ recordedVoices: {} });
   },
 }));

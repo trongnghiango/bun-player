@@ -11,6 +11,10 @@ export const App: React.FC = () => {
   const isEditorOpen = usePlayerStore((s) => s.isEditorOpen);
   const isFullscreen = usePlayerStore((s) => s.isFullscreen);
   const showSentencesInFullscreen = usePlayerStore((s) => s.showSentencesInFullscreen);
+  const activeCueIndex = usePlayerStore((s) => s.activeCueIndex);
+  const cues = usePlayerStore((s) => s.cues);
+  const isRecording = usePlayerStore((s) => s.isRecording);
+
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
   const replayCurrentCue = usePlayerStore((s) => s.replayCurrentCue);
   const nextCue = usePlayerStore((s) => s.nextCue);
@@ -19,6 +23,12 @@ export const App: React.FC = () => {
   const toggleEditor = usePlayerStore((s) => s.toggleEditor);
   const toggleFullscreen = usePlayerStore((s) => s.toggleFullscreen);
   const restoreFromCache = usePlayerStore((s) => s.restoreFromCache);
+  const cycleSentenceLoopTarget = usePlayerStore((s) => s.cycleSentenceLoopTarget);
+  const startRecordingCue = usePlayerStore((s) => s.startRecordingCue);
+  const stopRecordingCue = usePlayerStore((s) => s.stopRecordingCue);
+  const pendingMarkerStart = usePlayerStore((s) => s.pendingMarkerStart);
+  const toggleMarkerAtCurrentTime = usePlayerStore((s) => s.toggleMarkerAtCurrentTime);
+  const cancelPendingMarker = usePlayerStore((s) => s.cancelPendingMarker);
 
   // Auto-restore session from ~/.config/bun-player/cache.json on startup
   useEffect(() => {
@@ -75,9 +85,27 @@ export const App: React.FC = () => {
           e.preventDefault();
           toggleFullscreen();
           break;
+        case "KeyL":
+          e.preventDefault();
+          cycleSentenceLoopTarget();
+          break;
+        case "KeyM":
+          e.preventDefault();
+          toggleMarkerAtCurrentTime();
+          break;
+        case "KeyV":
+          e.preventDefault();
+          if (isRecording) {
+            stopRecordingCue();
+          } else if (activeCueIndex >= 0 && cues[activeCueIndex]) {
+            startRecordingCue(cues[activeCueIndex].id);
+          }
+          break;
         case "Escape":
-          if (isEditorOpen) {
-            e.preventDefault();
+          e.preventDefault();
+          if (pendingMarkerStart !== null) {
+            cancelPendingMarker();
+          } else if (isEditorOpen) {
             toggleEditor(false);
           }
           break;
@@ -86,7 +114,26 @@ export const App: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, isEditorOpen, setIsPlaying, replayCurrentCue, nextCue, prevCue, toggleSubtitle, toggleEditor, toggleFullscreen]);
+  }, [
+    isPlaying,
+    isEditorOpen,
+    isRecording,
+    activeCueIndex,
+    cues,
+    setIsPlaying,
+    replayCurrentCue,
+    nextCue,
+    prevCue,
+    toggleSubtitle,
+    toggleEditor,
+    toggleFullscreen,
+    cycleSentenceLoopTarget,
+    startRecordingCue,
+    stopRecordingCue,
+    pendingMarkerStart,
+    toggleMarkerAtCurrentTime,
+    cancelPendingMarker,
+  ]);
 
   return (
     <div className={`h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans select-none relative ${isFullscreen ? "fullscreen-active" : ""}`}>

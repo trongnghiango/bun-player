@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { X, Save, Sliders, ArrowLeftRight, Search, Check, Sparkles, Scissors, Plus, Film, FileVideo } from "../../lib/icons";
+import { X, Save, Sliders, ArrowLeftRight, Search, Check, Sparkles, Scissors, Plus, Film, FileVideo, Star, Repeat, Trash2, MapPin, Flag } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
 import { CueEditorItem } from "./CueEditorItem";
 import { serializeToVtt } from "../../lib/vtt-serializer";
@@ -19,6 +19,12 @@ export const EditorDrawer: React.FC = () => {
   const autoMergeShort = usePlayerStore((s) => s.autoMergeShort);
   const autoSplitLong = usePlayerStore((s) => s.autoSplitLong);
   const addCueAtCurrentTime = usePlayerStore((s) => s.addCueAtCurrentTime);
+  const sentenceLoopTarget = usePlayerStore((s) => s.sentenceLoopTarget);
+  const setSentenceLoopTarget = usePlayerStore((s) => s.setSentenceLoopTarget);
+  const recordedVoices = usePlayerStore((s) => s.recordedVoices);
+  const clearAllRecordings = usePlayerStore((s) => s.clearAllRecordings);
+  const pendingMarkerStart = usePlayerStore((s) => s.pendingMarkerStart);
+  const toggleMarkerAtCurrentTime = usePlayerStore((s) => s.toggleMarkerAtCurrentTime);
   const [searchTerm, setSearchTerm] = useState("");
   const [saveStatus, setSaveStatus] = useState<{ success: boolean; message: string } | null>(null);
   const activeItemRef = useRef<HTMLDivElement>(null);
@@ -217,17 +223,86 @@ export const EditorDrawer: React.FC = () => {
         </div>
       </div>
 
-      {/* Manual Add Cue Bar */}
+      {/* Manual Add & Live Marker Bar */}
       <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between text-xs">
-        <span className="text-slate-400">Đánh dấu câu mới:</span>
-        <button
-          onClick={addCueAtCurrentTime}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 transition-colors cursor-pointer font-medium"
-          title="Tạo mốc câu học mới ngay tại vị trí video đang nghe"
-        >
-          <Plus className="w-3.5 h-3.5 text-sky-400" />
-          <span>+ Thêm câu tại vị trí nghe</span>
-        </button>
+        <span className="text-slate-400">Làm dấu & Tạo câu:</span>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => toggleMarkerAtCurrentTime()}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              pendingMarkerStart !== null
+                ? "bg-amber-400 text-slate-950 animate-pulse hover:bg-amber-300 shadow-md shadow-amber-400/30"
+                : "bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30"
+            }`}
+            title="Làm dấu mốc đầu và cuối câu khi nghe video liên tục (Phím tắt: M)"
+          >
+            {pendingMarkerStart !== null ? (
+              <Flag className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
+            ) : (
+              <MapPin className="w-3.5 h-3.5 text-sky-400" />
+            )}
+            <span>{pendingMarkerStart !== null ? "Chốt câu (M)" : "Làm dấu (M)"}</span>
+          </button>
+          <button
+            onClick={addCueAtCurrentTime}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition-colors cursor-pointer"
+            title="Tạo mốc câu học mới cố định ngay tại vị trí video đang nghe"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Thêm +3s</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Pedagogical Control Bar: Looping & Voice Shadowing */}
+      <div className="px-4 py-2.5 bg-slate-900/80 border-b border-slate-800/80 flex flex-col gap-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-400 flex items-center gap-1.5 font-medium">
+            <Repeat className="w-3.5 h-3.5 text-amber-400" />
+            <span>Chế độ lặp lại câu:</span>
+          </span>
+          <div className="flex items-center gap-1 bg-slate-950/60 p-0.5 rounded-lg border border-slate-800">
+            {([1, 2, 3, Infinity] as const).map((count) => (
+              <button
+                key={String(count)}
+                onClick={() => setSentenceLoopTarget(count)}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                  sentenceLoopTarget === count
+                    ? "bg-amber-500 text-slate-950 shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {count === Infinity ? "🔁 Vô tận" : `${count}x`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {cues.length > 0 && (
+          <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
+            <div className="flex items-center gap-1.5 text-emerald-400 font-medium text-[11px]">
+              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+              <span>Tiến độ luyện đọc: </span>
+              <span className="font-bold text-slate-200">
+                {Object.keys(recordedVoices).length} / {cues.length} câu
+              </span>
+            </div>
+            {Object.keys(recordedVoices).length > 0 && (
+              <button
+                onClick={() => {
+                  if (window.confirm("Bạn có chắc muốn xóa tất cả các bản thu âm giọng đọc của bé?")) {
+                    clearAllRecordings();
+                  }
+                }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 text-[10px] transition-colors cursor-pointer"
+                title="Xóa toàn bộ bản thu âm để bé luyện đọc lại từ đầu"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Xóa hết bản thu</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Search Input */}
