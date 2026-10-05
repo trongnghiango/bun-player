@@ -20,7 +20,7 @@ export const VideoStage: React.FC = () => {
   const setCurrentTime = usePlayerStore((s) => s.setCurrentTime);
   const setDuration = usePlayerStore((s) => s.setDuration);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
-  const setTargetStopSeconds = usePlayerStore((s) => s.setTargetStopSeconds);
+  const pauseAtSentenceEnd = usePlayerStore((s) => s.pauseAtSentenceEnd);
   const setMedia = usePlayerStore((s) => s.setMedia);
   const setCues = usePlayerStore((s) => s.setCues);
   const loadSampleDemo = usePlayerStore((s) => s.loadSampleDemo);
@@ -62,12 +62,11 @@ export const VideoStage: React.FC = () => {
     if (!videoRef.current) return;
     const current = videoRef.current.currentTime;
 
-    // Check sentence auto-stop condition
+    // Check sentence auto-stop condition: lock and stay on current sentence
     if (targetStopSeconds !== null && current >= targetStopSeconds) {
       videoRef.current.pause();
-      setIsPlaying(false);
-      setTargetStopSeconds(null);
-      setCurrentTime(current);
+      videoRef.current.currentTime = targetStopSeconds;
+      pauseAtSentenceEnd(targetStopSeconds);
       return;
     }
 

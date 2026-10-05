@@ -38,6 +38,7 @@ interface PlayerStore {
   addCueAtCurrentTime: () => void;
   autoMergeShort: (minWords?: number) => void;
   autoSplitLong: (maxWords?: number) => void;
+  pauseAtSentenceEnd: (endTime: number) => void;
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
   setIsPlaying: (isPlaying: boolean) => void;
@@ -320,30 +321,76 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     return false;
   },
 
-  setCurrentTime: (time) => {
-    const { cues, autoPause, targetStopSeconds } = get();
-    // Locate which sentence is currently active
-    const activeIdx = cues.findIndex((c) => time >= c.startTime && time <= c.endTime);
+  pauseAtSentenceEnd: (endTime) => {
+    const { activeCueIndex } = get();
+    set({
+      currentTime: endTime,
+      isPlaying: false,
+      targetStopSeconds: null,
+      // Strictly maintain the sentence that just finished speaking!
+      activeCueIndex: activeCueIndex >= 0 ? activeCueIndex : 0,
+    });
+  },
 
-    // Check if auto-pause threshold is reached
+  setCurrentTime: (time) => {
+    const { cues, autoPause, targetStopSeconds, activeCueIndex, isPlaying } = get();
+
+    // 1. Check if auto-pause threshold is reached
     if (autoPause && targetStopSeconds !== null && time >= targetStopSeconds) {
       set({
-        currentTime: time,
+        currentTime: targetStopSeconds,
         isPlaying: false,
         targetStopSeconds: null,
-        activeCueIndex: activeIdx >= 0 ? activeIdx : get().activeCueIndex,
+        // Stay on the finished sentence! Do NOT jump to the next one!
+        activeCueIndex: activeCueIndex >= 0 ? activeCueIndex : 0,
       });
       return;
     }
 
+    // 2. If video is paused in sentence-by-sentence mode, do not shift activeCueIndex
+    if (autoPause && !isPlaying) {
+      set({ currentTime: time });
+      return;
+    }
+
+    // 3. Keep current cue if time is still within its interval
+    if (activeCueIndex >= 0 && activeCueIndex < cues.length) {
+      const cur = cues[activeCueIndex];
+      if (time >= cur.startTime && time < cur.endTime) {
+        set({ currentTime: time });
+        return;
+      }
+    }
+
+    // 4. Locate which sentence is currently active (using < endTime to prevent boundary clash)
+    const activeIdx = cues.findIndex((c) => time >= c.startTime && time < c.endTime);
     set({
       currentTime: time,
-      activeCueIndex: activeIdx >= 0 ? activeIdx : get().activeCueIndex,
+      activeCueIndex: activeIdx >= 0 ? activeIdx : activeCueIndex,
     });
   },
 
   setDuration: (duration) => set({ duration }),
-  setIsPlaying: (isPlaying) => set({ isPlaying }),
+
+  setIsPlaying: (isPlaying) => {
+    const { cues, activeCueIndex, currentTime, autoPause, targetStopSeconds, jumpToCue } = get();
+    if (isPlaying) {
+      const currentCue = activeCueIndex >= 0 ? cues[activeCueIndex] : null;
+      // If paused at the end of the current sentence and user hits play, move to next sentence!
+      if (autoPause && currentCue && currentTime >= currentCue.endTime - 0.1) {
+        if (activeCueIndex < cues.length - 1) {
+          jumpToCue(activeCueIndex + 1);
+          return;
+        }
+      }
+      // If resuming current sentence midway
+      if (autoPause && currentCue && targetStopSeconds === null) {
+        set({ isPlaying: true, targetStopSeconds: currentCue.endTime });
+        return;
+      }
+    }
+    set({ isPlaying, targetStopSeconds: isPlaying ? targetStopSeconds : null });
+  },
   setPlaybackRate: (playbackRate) => set({ playbackRate }),
   setTargetStopSeconds: (targetStopSeconds) => set({ targetStopSeconds }),
 
