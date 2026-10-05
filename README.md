@@ -33,6 +33,8 @@
 - **Thanh trượt Slider & Nudge `[-0.1s]` `[+0.1s]`:** Dễ dàng căn chỉnh thời điểm bắt đầu và kết thúc của từng câu.
 - **Nghe thử câu (Play snippet):** Kiểm tra độ chuẩn xác của câu trước khi lưu.
 - **Lưu file trực tiếp & Lưu thành... (Save As):** Xuất lại file `.vtt` chuẩn chỉ bằng 1 click hoặc tự chọn thư mục lưu.
+- **Xuất Video tích hợp Phụ đề (1 file MP4 duy nhất):** Nút **"🎬 Xuất MP4 kèm Sub"** trong khay biên tập đóng gói cả video và toàn bộ câu thoại đã chỉnh sửa vào **đúng 1 file MP4 duy nhất** (chuẩn `mov_text`), mang sang iPad/TV/điện thoại nào mở cũng có sẵn phụ đề và bật/tắt được.
+- **Tự động nhận diện Phụ đề nhúng:** Khi mở một video đã có sẵn phụ đề nhúng bên trong, Bun Player sẽ **tự động bóc tách ra danh sách câu để học ngay lập tức** mà không cần phải mở file phụ đề riêng lẻ.
 
 ### 4. Phím Tắt Tiện Dụng
 - `Space`: Phát / Tạm dừng
