@@ -1,0 +1,27 @@
+[package]
+name = "bun-player"
+version = "1.0.0"
+description = "Bun Player - Kid Player & Sentence Engine Desktop"
+authors = ["Ka"]
+edition = "2021"
+
+[lib]
+name = "bun_player_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+[profile.release]
+opt-level = 2
+lto = false
+codegen-units = 16
+panic = "abort"
+strip = true

@@ -1,0 +1,76 @@
+# Node.js & Frontend dependencies
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+dist/
+dist-ssr/
+build/
+*.local
+
+# Vite & TypeScript build artifacts
+.vite/
+*.tsbuildinfo
+
+# Rust & Tauri Desktop artifacts
+target/
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# Compiled Executables & Packages
+*.AppImage
+*.deb
+*.rpm
+*.dmg
+*.exe
+*.msi
+*.dll
+*.so
+*.dylib
+
+# Large Media Files (Video/Audio/Archives)
+*.mp4
+*.mkv
+*.webm
+*.avi
+*.mov
+*.wmv
+*.flv
+*.m4v
+*.iso
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Environment, Secrets & Local Configs
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.p12
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS & Editor Metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.sublime-project
+*.sublime-workspace
+*.swp
+*~
