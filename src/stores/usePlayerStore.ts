@@ -9,6 +9,8 @@ interface PlayerStore {
   // Media State
   videoSrc: string | null;
   videoName: string;
+  videoPath: string | null;
+  videoFile: File | null;
   subtitlePath: string | null;
   cues: SentenceCue[];
 
@@ -26,7 +28,7 @@ interface PlayerStore {
   isEditorOpen: boolean;
 
   // Actions
-  setMedia: (url: string, name: string) => void;
+  setMedia: (url: string, name: string, path?: string | null, file?: File | null) => void;
   setCues: (cues: SentenceCue[], path?: string) => void;
   updateCueTiming: (id: number, startTime: number, endTime: number) => void;
   updateCueText: (id: number, newText: string) => void;
@@ -77,6 +79,8 @@ function queueAutoSave(get: () => PlayerStore) {
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
   videoSrc: null,
   videoName: "",
+  videoPath: null,
+  videoFile: null,
   subtitlePath: null,
   cues: [],
 
@@ -91,8 +95,15 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   autoPause: true,     // Default true: Little Fox style sentence pause
   isEditorOpen: false,
 
-  setMedia: (url, name) => {
-    set({ videoSrc: url, videoName: name, currentTime: 0, activeCueIndex: -1 });
+  setMedia: (url, name, path = null, file = null) => {
+    set({
+      videoSrc: url,
+      videoName: name,
+      videoPath: path,
+      videoFile: file,
+      currentTime: 0,
+      activeCueIndex: -1,
+    });
     queueAutoSave(get);
   },
 

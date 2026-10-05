@@ -21,7 +21,7 @@ export const HeaderBar: React.FC = () => {
   const handleOpenVideo = async () => {
     const res = await openMediaDialog();
     if (res) {
-      setMedia(res.url, res.name);
+      setMedia(res.url, res.name, res.path, res.file);
       // Auto-extract embedded subtitles if present inside the container
       const embeddedVtt = await extractEmbeddedSubtitles(res.path);
       if (embeddedVtt) {

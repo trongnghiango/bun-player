@@ -69,9 +69,10 @@ export async function extractEmbeddedSubtitles(videoPath: string): Promise<strin
  * Export video with embedded subtitles into a single self-contained MP4 file
  */
 export async function exportEmbeddedVideo(
-  videoPath: string,
+  videoPath: string | null,
   vttContent: string,
-  defaultName: string
+  defaultName: string,
+  videoFile: File | null = null
 ): Promise<{ success: boolean; message: string; path?: string }> {
   const suggestedName = defaultName
     ? defaultName.replace(/\.[a-zA-Z0-9]+$/, "") + "_embedded.mp4"
@@ -92,7 +93,7 @@ export async function exportEmbeddedVideo(
       }
 
       await invoke("export_embedded_mp4", {
-        videoPath,
+        videoPath: videoPath || "",
         vttContent,
         outputPath: targetPath,
       });
@@ -112,18 +113,59 @@ export async function exportEmbeddedVideo(
 
   // Browser mode fallback via Vite endpoint
   try {
+    let serverInputPath = videoPath;
+
+    // If videoPath is a blob URL or doesn't start with / (i.e. browser file selection), upload videoFile to temp
+    if (videoFile && (!serverInputPath || !serverInputPath.startsWith("/"))) {
+      const uploadRes = await fetch(`/api/upload-temp-video?name=${encodeURIComponent(videoFile.name)}`, {
+        method: "POST",
+        body: videoFile,
+      });
+      if (!uploadRes.ok) {
+        throw new Error("Không thể chuyển dữ liệu video sang bộ xử lý");
+      }
+      const uploadData = await uploadRes.json();
+      serverInputPath = uploadData.path;
+    }
+
+    if (!serverInputPath || (!serverInputPath.startsWith("/") && !/^[a-zA-Z]:[\\\/]/.test(serverInputPath))) {
+      // Prompt user to pick the video file if not in memory
+      const picked = await openMediaDialog();
+      if (picked?.file) {
+        const uploadRes = await fetch(`/api/upload-temp-video?name=${encodeURIComponent(picked.file.name)}`, {
+          method: "POST",
+          body: picked.file,
+        });
+        if (!uploadRes.ok) {
+          throw new Error("Không thể chuyển dữ liệu video sang bộ xử lý");
+        }
+        const uploadData = await uploadRes.json();
+        serverInputPath = uploadData.path;
+      } else if (picked?.path && (picked.path.startsWith("/") || /^[a-zA-Z]:[\\\/]/.test(picked.path))) {
+        serverInputPath = picked.path;
+      } else {
+        return { success: false, message: "Cần chọn file video nguồn để tiến hành đóng gói." };
+      }
+    }
+
     const outputPath = `/tmp/${suggestedName}`;
     const res = await fetch("/api/export-mp4", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ videoPath, vttContent, outputPath }),
+      body: JSON.stringify({ videoPath: serverInputPath, vttContent, outputPath }),
     });
     const data = await res.json();
     if (res.ok && data.success) {
+      // Trigger automatic browser download
+      const a = document.createElement("a");
+      a.href = `/api/download-file?path=${encodeURIComponent(outputPath)}`;
+      a.download = suggestedName;
+      a.click();
+
       return {
         success: true,
-        path: data.path,
-        message: `Đã đóng gói thành công 1 file MP4 tích hợp tại: ${data.path}`,
+        path: outputPath,
+        message: `Đã đóng gói thành công! Trình duyệt đang tải về: ${suggestedName}`,
       };
     } else {
       return { success: false, message: data.error || "Không thể xuất MP4" };
@@ -139,7 +181,7 @@ export async function exportEmbeddedVideo(
 /**
  * Open Video or Audio File
  */
-export async function openMediaDialog(): Promise<{ path: string; url: string; name: string } | null> {
+export async function openMediaDialog(): Promise<{ path: string; url: string; name: string; file?: File } | null> {
   if (isTauri()) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -174,7 +216,7 @@ export async function openMediaDialog(): Promise<{ path: string; url: string; na
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const url = URL.createObjectURL(file);
-        resolve({ path: file.name, url, name: file.name });
+        resolve({ path: file.name, url, name: file.name, file });
       } else {
         resolve(null);
       }

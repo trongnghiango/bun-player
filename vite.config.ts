@@ -10,6 +10,51 @@ function mediaStreamPlugin() {
   return {
     name: "vite-media-stream",
     configureServer(server: any) {
+      // API to upload temporary video in browser mode so ffmpeg can access it
+      server.middlewares.use("/api/upload-temp-video", (req: any, res: any) => {
+        try {
+          const url = new URL(req.url, "http://localhost:1420");
+          const filename = url.searchParams.get("name") || "video.mp4";
+          const tempPath = path.join(os.tmpdir(), `bun_upload_${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
+          const writeStream = fs.createWriteStream(tempPath);
+          req.pipe(writeStream);
+          writeStream.on("finish", () => {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ path: tempPath }));
+          });
+          writeStream.on("error", (err: any) => {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: err.message }));
+          });
+        } catch (e: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+
+      // API to download exported file in browser mode
+      server.middlewares.use("/api/download-file", (req: any, res: any) => {
+        try {
+          const url = new URL(req.url, "http://localhost:1420");
+          const filePath = url.searchParams.get("path");
+          if (!filePath || !fs.existsSync(filePath)) {
+            res.statusCode = 404;
+            res.end("Not Found");
+            return;
+          }
+          const filename = path.basename(filePath);
+          res.writeHead(200, {
+            "Content-Type": "video/mp4",
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Content-Length": fs.statSync(filePath).size,
+          });
+          fs.createReadStream(filePath).pipe(res);
+        } catch (e: any) {
+          res.statusCode = 500;
+          res.end(e.message);
+        }
+      });
+
       // API to extract embedded subtitles from video via ffmpeg
       server.middlewares.use("/api/extract-subtitles", (req: any, res: any) => {
         let body = "";

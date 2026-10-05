@@ -8,6 +8,8 @@ import { saveSubtitleFile, exportEmbeddedVideo } from "../../lib/tauri-bridge";
 export const EditorDrawer: React.FC = () => {
   const videoSrc = usePlayerStore((s) => s.videoSrc);
   const videoName = usePlayerStore((s) => s.videoName);
+  const videoPath = usePlayerStore((s) => s.videoPath);
+  const videoFile = usePlayerStore((s) => s.videoFile);
   const cues = usePlayerStore((s) => s.cues);
   const activeCueIndex = usePlayerStore((s) => s.activeCueIndex);
   const subtitlePath = usePlayerStore((s) => s.subtitlePath);
@@ -49,15 +51,15 @@ export const EditorDrawer: React.FC = () => {
   const handleExportEmbeddedMp4 = async () => {
     if (!videoName || cues.length === 0) return;
     const vttContent = serializeToVtt(cues);
-    let rawPath = videoSrc || videoName;
+    let rawPath = videoPath || videoSrc || videoName;
     if (rawPath.startsWith("/media-stream?path=")) {
       rawPath = decodeURIComponent(rawPath.replace("/media-stream?path=", ""));
     } else if (rawPath.startsWith("asset://localhost/")) {
       rawPath = decodeURIComponent(rawPath.replace("asset://localhost/", ""));
     }
 
-    setSaveStatus({ success: true, message: "Đang đóng gói video và phụ đề vào 1 file MP4 duy nhất..." });
-    const res = await exportEmbeddedVideo(rawPath, vttContent, videoName);
+    setSaveStatus({ success: true, message: "Đang xử lý và đóng gói video..." });
+    const res = await exportEmbeddedVideo(rawPath, vttContent, videoName, videoFile);
     setSaveStatus({ success: res.success, message: res.message });
     setTimeout(() => setSaveStatus(null), 8000);
   };

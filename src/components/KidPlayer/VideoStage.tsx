@@ -85,9 +85,9 @@ export const VideoStage: React.FC = () => {
     const files = Array.from(e.dataTransfer.files);
     for (const file of files) {
       const name = file.name.toLowerCase();
-      if (name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mp3") || name.endsWith(".m4a")) {
+      if (name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mkv") || name.endsWith(".mp3") || name.endsWith(".m4a")) {
         const url = URL.createObjectURL(file);
-        setMedia(url, file.name);
+        setMedia(url, file.name, file.name, file);
       } else if (name.endsWith(".vtt") || name.endsWith(".srt") || name.endsWith(".json")) {
         const text = await file.text();
         const sentenceCues = parseToSentenceCues(text);
@@ -138,7 +138,7 @@ export const VideoStage: React.FC = () => {
                 onClick={async () => {
                   const res = await openMediaDialog();
                   if (res) {
-                    setMedia(res.url, res.name);
+                    setMedia(res.url, res.name, res.path, res.file);
                     setVideoError(null);
                   }
                 }}
@@ -178,7 +178,7 @@ export const VideoStage: React.FC = () => {
             <button
               onClick={async () => {
                 const res = await openMediaDialog();
-                if (res) setMedia(res.url, res.name);
+                if (res) setMedia(res.url, res.name, res.path, res.file);
               }}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm transition-all shadow-lg shadow-sky-600/20 cursor-pointer"
             >
