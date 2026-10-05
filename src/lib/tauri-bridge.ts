@@ -38,7 +38,7 @@ export async function resolveMediaUrl(pathOrUrl: string): Promise<string> {
 /**
  * Attempt to extract embedded subtitles from a video file (MP4/MKV)
  */
-export async function extractEmbeddedSubtitles(videoPath: string): Promise<string | null> {
+export async function extractEmbeddedSubtitles(videoPath: string, videoFile?: File | null): Promise<string | null> {
   if (isTauri()) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -50,17 +50,33 @@ export async function extractEmbeddedSubtitles(videoPath: string): Promise<strin
 
   // Browser Fallback (calls Vite dev server /api/extract-subtitles)
   try {
+    let serverInputPath = videoPath;
+
+    // If we have videoFile (browser file selection), upload to temp so ffmpeg can read it regardless of path!
+    if (videoFile && (!serverInputPath || !serverInputPath.startsWith("/"))) {
+      const uploadRes = await fetch(`/api/upload-temp-video?name=${encodeURIComponent(videoFile.name)}`, {
+        method: "POST",
+        body: videoFile,
+      });
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json();
+        serverInputPath = uploadData.path;
+      }
+    }
+
+    if (!serverInputPath) return null;
+
     const res = await fetch("/api/extract-subtitles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ videoPath }),
+      body: JSON.stringify({ videoPath: serverInputPath }),
     });
     if (res.ok) {
       const data = await res.json();
       return data.vtt || null;
     }
-  } catch {
-    // Network or not supported
+  } catch (e) {
+    console.warn("Could not extract embedded subtitles:", e);
   }
   return null;
 }

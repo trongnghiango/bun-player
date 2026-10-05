@@ -29,3 +29,5 @@ export { default as Sliders } from "lucide-react/dist/esm/icons/sliders.mjs";
 export { default as ArrowLeftRight } from "lucide-react/dist/esm/icons/arrow-left-right.mjs";
 export { default as Search } from "lucide-react/dist/esm/icons/search.mjs";
 export { default as Check } from "lucide-react/dist/esm/icons/check.mjs";
+export { default as Maximize2 } from "lucide-react/dist/esm/icons/maximize-2.mjs";
+export { default as Minimize2 } from "lucide-react/dist/esm/icons/minimize-2.mjs";

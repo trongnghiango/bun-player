@@ -10,6 +10,22 @@ function mediaStreamPlugin() {
   return {
     name: "vite-media-stream",
     configureServer(server: any) {
+      // API to clear system app cache
+      server.middlewares.use("/api/clear-cache", (_req: any, res: any) => {
+        try {
+          const home = process.env.HOME || "";
+          const cacheFile = path.join(home, ".config", "bun-player", "cache.json");
+          if (fs.existsSync(cacheFile)) {
+            try { fs.unlinkSync(cacheFile); } catch {}
+          }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+        } catch (e: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      });
+
       // API to upload temporary video in browser mode so ffmpeg can access it
       server.middlewares.use("/api/upload-temp-video", (req: any, res: any) => {
         try {
@@ -67,7 +83,17 @@ function mediaStreamPlugin() {
               res.end(JSON.stringify({ error: "Missing videoPath" }));
               return;
             }
-            execFile("ffmpeg", ["-v", "error", "-i", videoPath, "-map", "0:s:0", "-f", "webvtt", "-"], (err, stdout) => {
+
+            let resolvedPath = videoPath;
+            if (!fs.existsSync(resolvedPath)) {
+              // Check Downloads folder
+              const downloadsPath = path.join(os.homedir(), "Downloads", videoPath);
+              if (fs.existsSync(downloadsPath)) {
+                resolvedPath = downloadsPath;
+              }
+            }
+
+            execFile("ffmpeg", ["-v", "error", "-i", resolvedPath, "-map", "0:s:0", "-f", "webvtt", "-"], (err, stdout) => {
               if (err || !stdout || !stdout.trim()) {
                 res.writeHead(404, { "Content-Type": "application/json" });
                 res.end(JSON.stringify({ error: "No embedded subtitles found" }));

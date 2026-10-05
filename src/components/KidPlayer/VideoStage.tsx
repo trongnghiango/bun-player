@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import { Film, Sparkles, UploadCloud, AlertCircle } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
-import { openMediaDialog } from "../../lib/tauri-bridge";
+import { openMediaDialog, extractEmbeddedSubtitles } from "../../lib/tauri-bridge";
 import { parseToSentenceCues } from "../../lib/vtt-parser";
 
 export const VideoStage: React.FC = () => {
@@ -15,6 +15,8 @@ export const VideoStage: React.FC = () => {
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const showSubtitle = usePlayerStore((s) => s.showSubtitle);
   const targetStopSeconds = usePlayerStore((s) => s.targetStopSeconds);
+  const isFullscreen = usePlayerStore((s) => s.isFullscreen);
+  const toggleFullscreen = usePlayerStore((s) => s.toggleFullscreen);
   const activeCue = usePlayerStore((s) => (s.activeCueIndex >= 0 ? s.cues[s.activeCueIndex] : null));
 
   const setCurrentTime = usePlayerStore((s) => s.setCurrentTime);
@@ -88,6 +90,13 @@ export const VideoStage: React.FC = () => {
       if (name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mkv") || name.endsWith(".mp3") || name.endsWith(".m4a")) {
         const url = URL.createObjectURL(file);
         setMedia(url, file.name, file.name, file);
+        const embeddedVtt = await extractEmbeddedSubtitles(file.name, file);
+        if (embeddedVtt) {
+          const sentenceCues = parseToSentenceCues(embeddedVtt);
+          if (sentenceCues.length > 0) {
+            setCues(sentenceCues, `${file.name} (Phụ đề nhúng sẵn)`);
+          }
+        }
       } else if (name.endsWith(".vtt") || name.endsWith(".srt") || name.endsWith(".json")) {
         const text = await file.text();
         const sentenceCues = parseToSentenceCues(text);
@@ -98,17 +107,24 @@ export const VideoStage: React.FC = () => {
 
   return (
     <div
-      className="flex-1 w-full flex items-center justify-center relative bg-slate-950 p-2 md:p-4 overflow-hidden"
+      className={`flex-1 w-full flex items-center justify-center relative bg-slate-950 overflow-hidden transition-all ${isFullscreen ? "p-0" : "p-2 md:p-4"}`}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
       {videoSrc ? (
-        <div className="relative w-full max-w-5xl aspect-video max-h-[72vh] rounded-2xl overflow-hidden shadow-2xl bg-black border border-slate-800/80 flex items-center justify-center">
+        <div
+          className={`relative w-full aspect-video flex items-center justify-center transition-all bg-black ${
+            isFullscreen
+              ? "max-w-none h-full max-h-none rounded-none border-none"
+              : "max-w-5xl max-h-[72vh] rounded-2xl overflow-hidden shadow-2xl border border-slate-800/80"
+          }`}
+        >
           <video
             ref={videoRef}
             src={videoSrc}
             className="w-full h-full object-contain cursor-pointer"
             onClick={() => setIsPlaying(!isPlaying)}
+            onDoubleClick={toggleFullscreen}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => setIsPlaying(false)}
@@ -178,7 +194,16 @@ export const VideoStage: React.FC = () => {
             <button
               onClick={async () => {
                 const res = await openMediaDialog();
-                if (res) setMedia(res.url, res.name, res.path, res.file);
+                if (res) {
+                  setMedia(res.url, res.name, res.path, res.file);
+                  const embeddedVtt = await extractEmbeddedSubtitles(res.path, res.file);
+                  if (embeddedVtt) {
+                    const sentenceCues = parseToSentenceCues(embeddedVtt);
+                    if (sentenceCues.length > 0) {
+                      setCues(sentenceCues, `${res.name} (Phụ đề nhúng sẵn)`);
+                    }
+                  }
+                }
               }}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm transition-all shadow-lg shadow-sky-600/20 cursor-pointer"
             >

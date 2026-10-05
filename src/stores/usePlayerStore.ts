@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { SentenceCue } from "../lib/types";
 import { SAMPLE_CUES, SAMPLE_STORY_TITLE, SAMPLE_VIDEO_URL } from "../lib/sample-data";
 import { autoMergeShortCues, autoSplitLongCues } from "../lib/vtt-parser";
-import { saveProjectCache, loadProjectCache } from "../lib/cache-storage";
+import { saveProjectCache, loadProjectCache, clearProjectCache } from "../lib/cache-storage";
 import { resolveMediaUrl } from "../lib/tauri-bridge";
 
 interface PlayerStore {
@@ -26,6 +26,8 @@ interface PlayerStore {
   showSubtitle: boolean; // default false for kids
   autoPause: boolean;    // default true for sentence-by-sentence pacing
   isEditorOpen: boolean;
+  isFullscreen: boolean;
+  showSentencesInFullscreen: boolean;
 
   // Actions
   setMedia: (url: string, name: string, path?: string | null, file?: File | null) => void;
@@ -50,6 +52,8 @@ interface PlayerStore {
   toggleSubtitle: () => void;
   toggleAutoPause: () => void;
   toggleEditor: (open?: boolean) => void;
+  toggleFullscreen: () => void;
+  toggleSentencesInFullscreen: () => void;
 
   jumpToCue: (index: number) => void;
   replayCurrentCue: () => void;
@@ -57,6 +61,7 @@ interface PlayerStore {
   prevCue: () => void;
   loadSampleDemo: () => void;
   restoreFromCache: () => Promise<boolean>;
+  clearProject: () => Promise<void>;
 }
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,6 +99,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   showSubtitle: false, // Default false: Image & Video first for kids
   autoPause: true,     // Default true: Little Fox style sentence pause
   isEditorOpen: false,
+  isFullscreen: false,
+  showSentencesInFullscreen: true, // Sentence buttons visible and clickable in fullscreen
 
   setMedia: (url, name, path = null, file = null) => {
     set({
@@ -410,6 +417,42 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   toggleEditor: (open) =>
     set((state) => ({ isEditorOpen: open !== undefined ? open : !state.isEditorOpen })),
 
+  toggleFullscreen: async () => {
+    const { isFullscreen } = get();
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        await win.setFullscreen(!isFullscreen);
+        set({ isFullscreen: !isFullscreen });
+        return;
+      } catch (err) {
+        console.warn("Tauri fullscreen error:", err);
+      }
+    }
+
+    if (!document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+        set({ isFullscreen: true });
+      } catch (err) {
+        console.warn("Fullscreen request error:", err);
+      }
+    } else {
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+        set({ isFullscreen: false });
+      } catch (err) {
+        console.warn("Exit fullscreen error:", err);
+      }
+    }
+  },
+
+  toggleSentencesInFullscreen: () =>
+    set((state) => ({ showSentencesInFullscreen: !state.showSentencesInFullscreen })),
+
   jumpToCue: (index) => {
     const { cues, autoPause } = get();
     if (index >= 0 && index < cues.length) {
@@ -467,5 +510,23 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       targetStopSeconds: null,
     });
     queueAutoSave(get);
+  },
+
+  clearProject: async () => {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    await clearProjectCache();
+    set({
+      videoSrc: null,
+      videoName: "",
+      videoPath: null,
+      videoFile: null,
+      subtitlePath: null,
+      cues: [],
+      currentTime: 0,
+      duration: 0,
+      isPlaying: false,
+      activeCueIndex: -1,
+      targetStopSeconds: null,
+    });
   },
 }));

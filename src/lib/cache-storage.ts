@@ -77,3 +77,33 @@ export async function loadProjectCache(): Promise<ProjectCacheData | null> {
 
   return null;
 }
+
+/**
+ * Clears cached project from both localStorage and ~/.config/bun-player/cache.json
+ */
+export async function clearProjectCache(): Promise<void> {
+  // 1. Clear browser localStorage
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.clear();
+    }
+  } catch (err) {
+    console.warn("Could not clear localStorage:", err);
+  }
+
+  // 2. Clear Tauri native cache
+  if (isTauri()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("clear_app_cache");
+    } catch (err) {
+      console.warn("Could not clear Tauri app cache:", err);
+    }
+  } else {
+    // 3. Clear via Vite API
+    try {
+      await fetch("/api/clear-cache", { method: "POST" });
+    } catch {}
+  }
+}

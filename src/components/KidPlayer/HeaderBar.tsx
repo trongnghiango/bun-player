@@ -1,5 +1,5 @@
 import React from "react";
-import { FileVideo, Subtitles, Eye, EyeOff, SlidersHorizontal, Sparkles, PauseCircle, PlayCircle, RotateCcw } from "../../lib/icons";
+import { FileVideo, Subtitles, Eye, EyeOff, SlidersHorizontal, Sparkles, PauseCircle, PlayCircle, RotateCcw, Trash2 } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
 import { openMediaDialog, openSubtitleDialog, extractEmbeddedSubtitles } from "../../lib/tauri-bridge";
 import { parseToSentenceCues } from "../../lib/vtt-parser";
@@ -17,13 +17,14 @@ export const HeaderBar: React.FC = () => {
   const setCues = usePlayerStore((s) => s.setCues);
   const loadSampleDemo = usePlayerStore((s) => s.loadSampleDemo);
   const restoreFromCache = usePlayerStore((s) => s.restoreFromCache);
+  const clearProject = usePlayerStore((s) => s.clearProject);
 
   const handleOpenVideo = async () => {
     const res = await openMediaDialog();
     if (res) {
       setMedia(res.url, res.name, res.path, res.file);
       // Auto-extract embedded subtitles if present inside the container
-      const embeddedVtt = await extractEmbeddedSubtitles(res.path);
+      const embeddedVtt = await extractEmbeddedSubtitles(res.path, res.file);
       if (embeddedVtt) {
         const sentenceCues = parseToSentenceCues(embeddedVtt);
         if (sentenceCues.length > 0) {
@@ -70,6 +71,21 @@ export const HeaderBar: React.FC = () => {
           <Subtitles className="w-4 h-4 text-emerald-400" />
           <span>Mở Phụ đề</span>
         </button>
+
+        {(cuesCount > 0 || videoName) && (
+          <button
+            onClick={async () => {
+              if (window.confirm("Bạn có muốn xóa cache bài học cũ để mở file mới không?")) {
+                await clearProject();
+              }
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 text-slate-400 text-xs transition-colors cursor-pointer border border-slate-700/60"
+            title="Xóa bộ nhớ đệm và đóng bài học hiện tại"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Xóa Cache</span>
+          </button>
+        )}
 
         {cuesCount === 0 && (
           <>

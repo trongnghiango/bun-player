@@ -101,6 +101,15 @@ fn load_app_cache() -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn clear_app_cache() -> Result<(), String> {
+    let file_path = get_config_dir().join("cache.json");
+    if file_path.exists() {
+        let _ = fs::remove_file(file_path);
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_stream_server();
@@ -111,6 +120,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_app_cache,
             load_app_cache,
+            clear_app_cache,
             get_stream_url,
             extract_subtitles,
             export_embedded_mp4

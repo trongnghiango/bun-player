@@ -1,5 +1,5 @@
 import React from "react";
-import { Play, Pause, RotateCcw, SkipForward, Gauge } from "../../lib/icons";
+import { Play, Pause, RotateCcw, SkipForward, Gauge, Maximize2, Minimize2 } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
 
 const SPEEDS = [0.7, 0.85, 1.0, 1.2];
@@ -9,10 +9,14 @@ export const BigControls: React.FC = () => {
   const currentTime = usePlayerStore((s) => s.currentTime);
   const duration = usePlayerStore((s) => s.duration);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
+  const isFullscreen = usePlayerStore((s) => s.isFullscreen);
+  const showSentencesInFullscreen = usePlayerStore((s) => s.showSentencesInFullscreen);
   const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
   const setPlaybackRate = usePlayerStore((s) => s.setPlaybackRate);
   const replayCurrentCue = usePlayerStore((s) => s.replayCurrentCue);
   const nextCue = usePlayerStore((s) => s.nextCue);
+  const toggleFullscreen = usePlayerStore((s) => s.toggleFullscreen);
+  const toggleSentencesInFullscreen = usePlayerStore((s) => s.toggleSentencesInFullscreen);
 
   const formatTime = (seconds: number) => {
     const s = Math.max(0, Math.floor(seconds));
@@ -62,22 +66,48 @@ export const BigControls: React.FC = () => {
         </button>
       </div>
 
-      {/* Right: Playback Speed Selector */}
-      <div className="w-44 flex items-center justify-end gap-1.5">
-        <Gauge className="w-4 h-4 text-slate-500 mr-1" />
-        {SPEEDS.map((speed) => (
+      {/* Right: Playback Speed Selector & Fullscreen */}
+      <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center gap-1 bg-slate-950/40 p-1 rounded-xl border border-slate-800/80">
+          <Gauge className="w-3.5 h-3.5 text-slate-500 ml-1 mr-0.5" />
+          {SPEEDS.map((speed) => (
+            <button
+              key={speed}
+              onClick={() => setPlaybackRate(speed)}
+              className={`px-2 py-0.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                playbackRate === speed
+                  ? "bg-amber-500 text-slate-950 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {speed}x
+            </button>
+          ))}
+        </div>
+
+        {/* Optional Toggle Sentence Bar visibility in Fullscreen */}
+        {isFullscreen && (
           <button
-            key={speed}
-            onClick={() => setPlaybackRate(speed)}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-              playbackRate === speed
-                ? "bg-amber-500 text-slate-950 shadow-sm"
-                : "bg-slate-800 text-slate-400 hover:text-slate-200"
+            onClick={toggleSentencesInFullscreen}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer border ${
+              showSentencesInFullscreen
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                : "bg-slate-800 text-slate-400 border-slate-700 hover:text-white"
             }`}
+            title="Bật / Tắt hiển thị dãy số câu trong toàn màn hình"
           >
-            {speed}x
+            {showSentencesInFullscreen ? "Ẩn số câu" : "Hiện số câu"}
           </button>
-        ))}
+        )}
+
+        {/* Fullscreen Button */}
+        <button
+          onClick={toggleFullscreen}
+          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors cursor-pointer border border-slate-700/60"
+          title={isFullscreen ? "Thu nhỏ màn hình (Phím tắt: F hoặc Esc)" : "Toàn màn hình (Phím tắt: F)"}
+        >
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
       </div>
     </div>
   );
