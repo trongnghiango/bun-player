@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from "react";
-import { X, Save, Sliders, ArrowLeftRight, Search, Check, Sparkles, Scissors, Plus } from "../../lib/icons";
+import { X, Save, Sliders, ArrowLeftRight, Search, Check, Sparkles, Scissors, Plus, Film, FileVideo } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
 import { CueEditorItem } from "./CueEditorItem";
 import { serializeToVtt } from "../../lib/vtt-serializer";
-import { saveSubtitleFile } from "../../lib/tauri-bridge";
+import { saveSubtitleFile, exportEmbeddedVideo } from "../../lib/tauri-bridge";
 
 export const EditorDrawer: React.FC = () => {
+  const videoSrc = usePlayerStore((s) => s.videoSrc);
+  const videoName = usePlayerStore((s) => s.videoName);
   const cues = usePlayerStore((s) => s.cues);
   const activeCueIndex = usePlayerStore((s) => s.activeCueIndex);
   const subtitlePath = usePlayerStore((s) => s.subtitlePath);
@@ -42,6 +44,22 @@ export const EditorDrawer: React.FC = () => {
     setTimeout(() => {
       setSaveStatus(null);
     }, 6000);
+  };
+
+  const handleExportEmbeddedMp4 = async () => {
+    if (!videoName || cues.length === 0) return;
+    const vttContent = serializeToVtt(cues);
+    let rawPath = videoSrc || videoName;
+    if (rawPath.startsWith("/media-stream?path=")) {
+      rawPath = decodeURIComponent(rawPath.replace("/media-stream?path=", ""));
+    } else if (rawPath.startsWith("asset://localhost/")) {
+      rawPath = decodeURIComponent(rawPath.replace("asset://localhost/", ""));
+    }
+
+    setSaveStatus({ success: true, message: "Đang đóng gói video và phụ đề vào 1 file MP4 duy nhất..." });
+    const res = await exportEmbeddedVideo(rawPath, vttContent, videoName);
+    setSaveStatus({ success: res.success, message: res.message });
+    setTimeout(() => setSaveStatus(null), 8000);
   };
 
   return (
@@ -116,6 +134,23 @@ export const EditorDrawer: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Export Integrated Video Bar */}
+      <div className="px-4 py-2 bg-indigo-950/40 border-b border-indigo-900/50 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-1.5 text-indigo-300 font-medium">
+          <Film className="w-3.5 h-3.5 text-indigo-400" />
+          <span>Gói 1 file duy nhất:</span>
+        </div>
+        <button
+          onClick={handleExportEmbeddedMp4}
+          disabled={cues.length === 0 || !videoSrc}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all shadow-md shadow-indigo-600/30 disabled:opacity-40 cursor-pointer"
+          title="Tích hợp toàn bộ phụ đề đã chỉnh sửa vào thẳng video thành 1 file MP4 duy nhất (chạy được trên mọi TV, iPad, điện thoại)"
+        >
+          <FileVideo className="w-3.5 h-3.5" />
+          <span>Xuất MP4 kèm Sub</span>
+        </button>
+      </div>
 
       {/* Global Offset Bar */}
       <div className="px-4 py-2.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between text-xs">

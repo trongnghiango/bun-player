@@ -2,6 +2,7 @@ mod stream_server;
 
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use stream_server::{get_stream_port, init_stream_server};
 
 fn get_config_dir() -> PathBuf {
@@ -11,6 +12,59 @@ fn get_config_dir() -> PathBuf {
         PathBuf::from(userprofile).join(".config").join("bun-player")
     } else {
         PathBuf::from(".bun-player")
+    }
+}
+
+#[tauri::command]
+fn extract_subtitles(video_path: String) -> Result<String, String> {
+    let output = Command::new("ffmpeg")
+        .args(["-v", "error", "-i", &video_path, "-map", "0:s:0", "-f", "webvtt", "-"])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+    if output.status.success() {
+        let content = String::from_utf8_lossy(&output.stdout).to_string();
+        if !content.trim().is_empty() {
+            return Ok(content);
+        }
+    }
+    Err("No embedded subtitles found".to_string())
+}
+
+#[tauri::command]
+fn export_embedded_mp4(video_path: String, vtt_content: String, output_path: String) -> Result<String, String> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let temp_vtt = std::env::temp_dir().join(format!("bun_sub_{}.vtt", timestamp));
+    fs::write(&temp_vtt, vtt_content).map_err(|e| format!("Failed to write temp vtt: {}", e))?;
+
+    let output = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            &video_path,
+            "-i",
+            &temp_vtt.to_string_lossy(),
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
+            "-c:s",
+            "mov_text",
+            &output_path,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+    let _ = fs::remove_file(temp_vtt);
+
+    if output.status.success() {
+        Ok(output_path)
+    } else {
+        let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("ffmpeg export failed: {}", err_msg))
     }
 }
 
@@ -57,7 +111,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_app_cache,
             load_app_cache,
-            get_stream_url
+            get_stream_url,
+            extract_subtitles,
+            export_embedded_mp4
         ])
         .run(tauri::generate_context!())
         .expect("error while running bun-player application");

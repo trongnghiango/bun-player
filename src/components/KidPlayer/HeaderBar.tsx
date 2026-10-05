@@ -1,7 +1,7 @@
 import React from "react";
 import { FileVideo, Subtitles, Eye, EyeOff, SlidersHorizontal, Sparkles, PauseCircle, PlayCircle, RotateCcw } from "../../lib/icons";
 import { usePlayerStore } from "../../stores/usePlayerStore";
-import { openMediaDialog, openSubtitleDialog } from "../../lib/tauri-bridge";
+import { openMediaDialog, openSubtitleDialog, extractEmbeddedSubtitles } from "../../lib/tauri-bridge";
 import { parseToSentenceCues } from "../../lib/vtt-parser";
 
 export const HeaderBar: React.FC = () => {
@@ -22,6 +22,14 @@ export const HeaderBar: React.FC = () => {
     const res = await openMediaDialog();
     if (res) {
       setMedia(res.url, res.name);
+      // Auto-extract embedded subtitles if present inside the container
+      const embeddedVtt = await extractEmbeddedSubtitles(res.path);
+      if (embeddedVtt) {
+        const sentenceCues = parseToSentenceCues(embeddedVtt);
+        if (sentenceCues.length > 0) {
+          setCues(sentenceCues, `${res.name} (Phụ đề nhúng sẵn)`);
+        }
+      }
     }
   };
 

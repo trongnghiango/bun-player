@@ -36,6 +36,107 @@ export async function resolveMediaUrl(pathOrUrl: string): Promise<string> {
 }
 
 /**
+ * Attempt to extract embedded subtitles from a video file (MP4/MKV)
+ */
+export async function extractEmbeddedSubtitles(videoPath: string): Promise<string | null> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return await invoke<string>("extract_subtitles", { videoPath });
+    } catch {
+      return null;
+    }
+  }
+
+  // Browser Fallback (calls Vite dev server /api/extract-subtitles)
+  try {
+    const res = await fetch("/api/extract-subtitles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoPath }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.vtt || null;
+    }
+  } catch {
+    // Network or not supported
+  }
+  return null;
+}
+
+/**
+ * Export video with embedded subtitles into a single self-contained MP4 file
+ */
+export async function exportEmbeddedVideo(
+  videoPath: string,
+  vttContent: string,
+  defaultName: string
+): Promise<{ success: boolean; message: string; path?: string }> {
+  const suggestedName = defaultName
+    ? defaultName.replace(/\.[a-zA-Z0-9]+$/, "") + "_embedded.mp4"
+    : "video_with_subtitles.mp4";
+
+  if (isTauri()) {
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      const targetPath = await save({
+        filters: [{ name: "MP4 Video with Subtitles (*.mp4)", extensions: ["mp4"] }],
+        defaultPath: suggestedName,
+      });
+
+      if (!targetPath) {
+        return { success: false, message: "Đã hủy xuất video." };
+      }
+
+      await invoke("export_embedded_mp4", {
+        videoPath,
+        vttContent,
+        outputPath: targetPath,
+      });
+
+      return {
+        success: true,
+        path: targetPath,
+        message: `Xuất thành công video tích hợp phụ đề: ${targetPath}`,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        message: `Lỗi xuất video: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Browser mode fallback via Vite endpoint
+  try {
+    const outputPath = `/tmp/${suggestedName}`;
+    const res = await fetch("/api/export-mp4", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoPath, vttContent, outputPath }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      return {
+        success: true,
+        path: data.path,
+        message: `Đã đóng gói thành công 1 file MP4 tích hợp tại: ${data.path}`,
+      };
+    } else {
+      return { success: false, message: data.error || "Không thể xuất MP4" };
+    }
+  } catch (err: unknown) {
+    return {
+      success: false,
+      message: `Lỗi xuất video: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
  * Open Video or Audio File
  */
 export async function openMediaDialog(): Promise<{ path: string; url: string; name: string } | null> {
