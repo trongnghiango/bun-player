@@ -1,5 +1,8 @@
+mod stream_server;
+
 use std::fs;
 use std::path::PathBuf;
+use stream_server::{get_stream_port, init_stream_server};
 
 fn get_config_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
@@ -9,6 +12,20 @@ fn get_config_dir() -> PathBuf {
     } else {
         PathBuf::from(".bun-player")
     }
+}
+
+#[tauri::command]
+fn get_stream_url(path: String) -> String {
+    let port = get_stream_port();
+    let mut encoded = String::new();
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{:02X}", b));
+        }
+    }
+    format!("http://127.0.0.1:{}/stream?path={}", port, encoded)
 }
 
 #[tauri::command]
@@ -32,10 +49,16 @@ fn load_app_cache() -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_stream_server();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![save_app_cache, load_app_cache])
+        .invoke_handler(tauri::generate_handler![
+            save_app_cache,
+            load_app_cache,
+            get_stream_url
+        ])
         .run(tauri::generate_context!())
         .expect("error while running bun-player application");
 }

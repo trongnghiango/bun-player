@@ -3,6 +3,7 @@ import { SentenceCue } from "../lib/types";
 import { SAMPLE_CUES, SAMPLE_STORY_TITLE, SAMPLE_VIDEO_URL } from "../lib/sample-data";
 import { autoMergeShortCues, autoSplitLongCues } from "../lib/vtt-parser";
 import { saveProjectCache, loadProjectCache } from "../lib/cache-storage";
+import { resolveMediaUrl } from "../lib/tauri-bridge";
 
 interface PlayerStore {
   // Media State
@@ -302,9 +303,13 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   restoreFromCache: async () => {
     const cached = await loadProjectCache();
     if (cached && cached.cues && cached.cues.length > 0) {
+      let resolvedSrc = cached.videoSrc || null;
+      if (resolvedSrc) {
+        resolvedSrc = await resolveMediaUrl(resolvedSrc);
+      }
       set({
         videoName: cached.videoName || "",
-        videoSrc: cached.videoSrc || null,
+        videoSrc: resolvedSrc,
         subtitlePath: cached.subtitlePath || null,
         cues: cached.cues,
         activeCueIndex: 0,

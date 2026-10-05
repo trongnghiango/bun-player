@@ -6,6 +6,29 @@ export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+export async function resolveMediaUrl(pathOrUrl: string): Promise<string> {
+  if (isTauri()) {
+    try {
+      const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
+      let rawPath = pathOrUrl;
+      // Unwrap asset:// URL if stored in cache
+      if (rawPath.startsWith("asset://localhost/")) {
+        rawPath = decodeURIComponent(rawPath.replace("asset://localhost/", ""));
+      }
+      if (rawPath.startsWith("/") || /^[a-zA-Z]:[\\\/]/.test(rawPath)) {
+        try {
+          return await invoke<string>("get_stream_url", { path: rawPath });
+        } catch {
+          return convertFileSrc(rawPath);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not get stream url, falling back:", e);
+    }
+  }
+  return pathOrUrl;
+}
+
 /**
  * Open Video or Audio File
  */
@@ -13,7 +36,6 @@ export async function openMediaDialog(): Promise<{ path: string; url: string; na
   if (isTauri()) {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const { convertFileSrc } = await import("@tauri-apps/api/core");
 
       const selected = await open({
         multiple: false,
@@ -26,7 +48,7 @@ export async function openMediaDialog(): Promise<{ path: string; url: string; na
       });
 
       if (selected && typeof selected === "string") {
-        const url = convertFileSrc(selected);
+        const url = await resolveMediaUrl(selected);
         const name = selected.split(/[\/\\]/).pop() || "media";
         return { path: selected, url, name };
       }
