@@ -115,32 +115,38 @@ export const VideoStage: React.FC = () => {
             onError={(e) => {
               const target = e.currentTarget;
               const err = target.error;
-              const ext = videoName.toLowerCase().split('.').pop();
-              let msg = "Không thể phát video này.";
+              let msg = "Không thể truy cập dữ liệu video từ nguồn cũ.";
               if (err) {
-                if (err.code === 3) msg = "Lỗi giải mã: Máy tính thiếu codec GStreamer hoặc file hỏng.";
-                if (err.code === 4) {
-                  if (ext === "mkv") {
-                    msg = "Video dạng .mkv (codec AV1) cần gói 'gst-plugin-dav1d' trên Linux hoặc chuyển sang chuẩn .mp4 / .webm.";
-                  } else {
-                    msg = "Định dạng video không được hỗ trợ bởi WebKit trên hệ thống này.";
-                  }
-                }
+                if (err.code === 3) msg = "Lỗi giải mã video: File bị hỏng hoặc thiếu codec.";
+                if (err.code === 4) msg = "Đường dẫn video cần được kết nối lại.";
               }
               setVideoError(msg);
             }}
             playsInline
           />
 
-          {/* Video Error Overlay */}
+          {/* Video Error Overlay with Easy Reconnect Button */}
           {videoError && (
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10">
-              <AlertCircle className="w-12 h-12 text-rose-500 mb-3" />
-              <h4 className="text-lg font-bold text-rose-300 mb-1">Lỗi phát Video</h4>
-              <p className="text-sm text-slate-300 max-w-md mb-4">{videoError}</p>
-              <p className="text-xs text-slate-400 bg-slate-900 px-3 py-2 rounded-lg border border-slate-800 font-mono">
-                Thử chạy qua trình duyệt: <span className="text-sky-400">pnpm run dev</span>
+            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10 animate-in fade-in duration-200">
+              <AlertCircle className="w-12 h-12 text-amber-400 mb-3" />
+              <h4 className="text-lg font-bold text-slate-100 mb-1">Cần kết nối lại file Video</h4>
+              <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
+                Các câu thoại của bạn vẫn được lưu nguyên vẹn 100%. Vui lòng bấm nút bên dưới để chọn lại file video{" "}
+                <span className="text-amber-300 font-semibold">{videoName}</span>.
               </p>
+              <button
+                onClick={async () => {
+                  const res = await openMediaDialog();
+                  if (res) {
+                    setMedia(res.url, res.name);
+                    setVideoError(null);
+                  }
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm transition-all shadow-lg shadow-sky-600/20 cursor-pointer"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Chọn lại file: {videoName || "Video"}</span>
+              </button>
             </div>
           )}
 

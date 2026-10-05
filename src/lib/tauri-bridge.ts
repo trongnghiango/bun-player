@@ -7,14 +7,15 @@ export function isTauri(): boolean {
 }
 
 export async function resolveMediaUrl(pathOrUrl: string): Promise<string> {
+  let rawPath = pathOrUrl;
+  // Unwrap asset:// URL if stored in cache
+  if (rawPath.startsWith("asset://localhost/")) {
+    rawPath = decodeURIComponent(rawPath.replace("asset://localhost/", ""));
+  }
+
   if (isTauri()) {
     try {
       const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
-      let rawPath = pathOrUrl;
-      // Unwrap asset:// URL if stored in cache
-      if (rawPath.startsWith("asset://localhost/")) {
-        rawPath = decodeURIComponent(rawPath.replace("asset://localhost/", ""));
-      }
       if (rawPath.startsWith("/") || /^[a-zA-Z]:[\\\/]/.test(rawPath)) {
         try {
           return await invoke<string>("get_stream_url", { path: rawPath });
@@ -25,8 +26,13 @@ export async function resolveMediaUrl(pathOrUrl: string): Promise<string> {
     } catch (e) {
       console.warn("Could not get stream url, falling back:", e);
     }
+  } else {
+    // In Browser mode (pnpm run dev): Stream directly through Vite media server
+    if (rawPath.startsWith("/") || /^[a-zA-Z]:[\\\/]/.test(rawPath)) {
+      return `/media-stream?path=${encodeURIComponent(rawPath)}`;
+    }
   }
-  return pathOrUrl;
+  return rawPath;
 }
 
 /**
