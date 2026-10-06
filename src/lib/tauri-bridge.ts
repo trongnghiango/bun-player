@@ -13,6 +13,15 @@ export async function resolveMediaUrl(pathOrUrl: string): Promise<string> {
     rawPath = decodeURIComponent(rawPath.replace("asset://localhost/", ""));
   }
 
+  // Unwrap stream URLs with stale ports from previous session cache
+  if (rawPath.includes("/stream?path=")) {
+    const idx = rawPath.indexOf("/stream?path=");
+    rawPath = decodeURIComponent(rawPath.substring(idx + 13));
+  } else if (rawPath.includes("/media-stream?path=")) {
+    const idx = rawPath.indexOf("/media-stream?path=");
+    rawPath = decodeURIComponent(rawPath.substring(idx + 19));
+  }
+
   if (isTauri()) {
     try {
       const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");

@@ -463,8 +463,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       incrementLoopAndReplay,
     } = get();
 
-    // 1. Auto-pause check: ONLY evaluate when actively playing and target is armed!
-    if (autoPause && isPlaying && targetStopSeconds !== null && time >= targetStopSeconds - 0.05) {
+    // 1. Auto-pause check: ONLY evaluate when actively playing, target is armed, and NOT in live marking!
+    if (autoPause && isPlaying && !get().pendingMarkerStart && targetStopSeconds !== null && time >= targetStopSeconds - 0.05) {
       if (currentSentenceLoopCount + 1 < sentenceLoopTarget) {
         incrementLoopAndReplay();
         return;
@@ -557,8 +557,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (isPlaying) {
       const currentCue = activeCueIndex >= 0 ? cues[activeCueIndex] : null;
 
-      // If paused at the end of the current sentence:
-      if (autoPause && currentCue && currentTime >= currentCue.endTime - 0.15) {
+      // If paused at the end of the current sentence (and NOT in live marking):
+      if (autoPause && !get().pendingMarkerStart && currentCue && currentTime >= currentCue.endTime - 0.15) {
         if (activeCueIndex < cues.length - 1) {
           jumpToCue(activeCueIndex + 1);
           return;
@@ -895,6 +895,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     set({
       cues: newCues,
       pendingMarkerStart: null,
+      targetStopSeconds: null, // Keep video streaming continuously without boundary freeze
       activeCueIndex: activeIdx >= 0 ? activeIdx : get().activeCueIndex,
       lastMarkerNotification: `✨ Đã tạo Câu ${activeIdx >= 0 ? activeIdx + 1 : nextId} (${sMins}:${sSecs} ➔ ${eMins}:${eSecs})`,
     });

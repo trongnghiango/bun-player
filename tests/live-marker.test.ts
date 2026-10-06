@@ -97,3 +97,26 @@ test("Live Marker: cancelPendingMarker clears start marker", () => {
   usePlayerStore.getState().cancelPendingMarker();
   assert.strictEqual(usePlayerStore.getState().pendingMarkerStart, null);
 });
+
+test("Live Marker: marking cues while playing leaves targetStopSeconds null so playback never freezes", () => {
+  usePlayerStore.setState({
+    isPlaying: true,
+    autoPause: true,
+    targetStopSeconds: null,
+    pendingMarkerStart: 10.0,
+    currentTime: 15.0,
+    cues: [],
+    duration: 100,
+  });
+
+  // Finish marking cue [10 -> 15]
+  usePlayerStore.getState().toggleMarkerAtCurrentTime();
+  const state = usePlayerStore.getState();
+
+  assert.strictEqual(state.cues.length, 1);
+  assert.strictEqual(state.targetStopSeconds, null, "targetStopSeconds must be null to allow continuous streaming!");
+
+  // Video advances to 15.01s (just past newly created cue end): it must NOT pause!
+  usePlayerStore.getState().setCurrentTime(15.01);
+  assert.strictEqual(usePlayerStore.getState().isPlaying, true, "Video must continue playing smoothly across newly created cue boundary!");
+});

@@ -30,6 +30,10 @@ pub fn get_stream_port() -> u16 {
 }
 
 fn handle_client(stream: &mut std::net::TcpStream) {
+    let _ = stream.set_nodelay(true);
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(15)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(15)));
+
     let mut buffer = [0u8; 4096];
     let bytes_read = match stream.read(&mut buffer) {
         Ok(n) if n > 0 => n,
@@ -127,12 +131,6 @@ fn handle_client(stream: &mut std::net::TcpStream) {
         return;
     }
 
-    // Limit chunk size to 2MB per partial response for snappy seeking
-    let chunk_limit = 2 * 1024 * 1024;
-    if range_end >= range_start + chunk_limit {
-        range_end = range_start + chunk_limit - 1;
-    }
-
     let content_len = (range_end - range_start) + 1;
 
     if file.seek(SeekFrom::Start(range_start)).is_err() {
@@ -148,7 +146,7 @@ fn handle_client(stream: &mut std::net::TcpStream) {
              Content-Length: {}\r\n\
              Accept-Ranges: bytes\r\n\
              Access-Control-Allow-Origin: *\r\n\
-             Connection: keep-alive\r\n\r\n",
+             Connection: close\r\n\r\n",
             mime_type, range_start, range_end, total_size, content_len
         )
     } else {
@@ -158,7 +156,7 @@ fn handle_client(stream: &mut std::net::TcpStream) {
              Content-Length: {}\r\n\
              Accept-Ranges: bytes\r\n\
              Access-Control-Allow-Origin: *\r\n\
-             Connection: keep-alive\r\n\r\n",
+             Connection: close\r\n\r\n",
             mime_type, total_size
         )
     };
