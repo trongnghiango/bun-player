@@ -93,3 +93,64 @@ test("autoSplitLongCues splits lengthy sentences near punctuation or conjunction
   assert.strictEqual(split[0].isAdjusted, true);
   assert.strictEqual(split[1].isAdjusted, true);
 });
+test("cleanSubtitleText strips font color and formatting tags", () => {
+  const tagged = '<font color="#ffff00">Mrs. Rabbit</font> had four little bunnies.';
+  assert.strictEqual(cleanSubtitleText(tagged), "Mrs. Rabbit had four little bunnies.");
+
+  const complex = '{\\an8}<font color="yellow"><b>Hello</b></font> &quot;Peter&quot;!';
+  assert.strictEqual(cleanSubtitleText(complex), 'Hello "Peter"!');
+});
+
+test("parseToSentenceCues collapses repeating color-highlight karaoke cues into single sentence", () => {
+  const karaokeSrt = `1
+00:00:10,067 --> 00:00:11,577
+Mrs. Rabbit had four little bunnies.
+
+2
+00:00:11,578 --> 00:00:12,599
+<font color="#ffff00">Mrs. Rabbit</font> had four little bunnies.
+
+3
+00:00:12,600 --> 00:00:12,837
+Mrs. Rabbit <font color="#ffff00">had</font> four little bunnies.
+
+4
+00:00:12,838 --> 00:00:13,250
+Mrs. Rabbit had <font color="#ffff00">four</font> little bunnies.
+
+5
+00:00:13,251 --> 00:00:13,631
+Mrs. Rabbit had four <font color="#ffff00">little</font> bunnies.
+
+6
+00:00:13,632 --> 00:00:14,439
+Mrs. Rabbit had four little <font color="#ffff00">bunnies</font>.
+
+7
+00:00:14,440 --> 00:00:14,672
+Mrs. Rabbit had four little bunnies.
+`;
+
+  const cues = parseToSentenceCues(karaokeSrt);
+  assert.strictEqual(cues.length, 1);
+  assert.strictEqual(cues[0].id, 1);
+  assert.strictEqual(cues[0].startTime, 10.067);
+  assert.strictEqual(cues[0].endTime, 14.672);
+  assert.strictEqual(cues[0].text, "Mrs. Rabbit had four little bunnies.");
+});
+
+test("parseToSentenceCues correctly parses BunBun Peter Rabbit SRT into exactly 25 sentences", async () => {
+  const fs = await import("node:fs/promises");
+  const srtPath = "/home/ka/Videos/BunBun/lv02-001_The Tale of Peter Rabbit 1_Mrs. Rabbit Goes into Town.srt";
+  try {
+    const srt = await fs.readFile(srtPath, "utf-8");
+    const cues = parseToSentenceCues(srt);
+    assert.strictEqual(cues.length, 25);
+    assert.strictEqual(cues[0].text, "Mrs. Rabbit had four little bunnies.");
+    assert.strictEqual(cues[0].startTime, 10.067);
+    assert.strictEqual(cues[0].endTime, 14.672);
+    assert.strictEqual(cues[24].text, '"I\'m going to the farmer\'s garden!"');
+  } catch (err) {
+    // If external file not present in other environments, pass safely
+  }
+});

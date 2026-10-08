@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { SentenceCue, LoopTarget, MarkerResult } from "../lib/types.ts";
 import { SAMPLE_CUES, SAMPLE_STORY_TITLE, SAMPLE_VIDEO_URL } from "../lib/sample-data.ts";
-import { autoMergeShortCues, autoSplitLongCues } from "../lib/vtt-parser.ts";
+import { autoMergeShortCues, autoSplitLongCues, groupIntoSentences } from "../lib/vtt-parser.ts";
 import { saveProjectCache, loadProjectCache, clearProjectCache } from "../lib/cache-storage.ts";
 import { resolveMediaUrl } from "../lib/tauri-bridge.ts";
 import {
@@ -63,6 +63,7 @@ export interface PlayerStore {
   addCueAtCurrentTime: () => void;
   autoMergeShort: (minWords?: number) => void;
   autoSplitLong: (maxWords?: number) => void;
+  autoGroupSentences: () => void;
   pauseAtSentenceEnd: (endTime: number) => void;
   setCurrentTime: (time: number) => void;
   seekToTime: (time: number) => void;
@@ -299,6 +300,23 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     if (cues.length <= 1) return;
     const newCues = autoMergeShortCues(cues, minWords);
     set({ cues: newCues });
+    queueAutoSave(get);
+  },
+
+  autoGroupSentences: () => {
+    const { cues } = get();
+    if (cues.length <= 1) return;
+    const rawCues = cues.map((c) => ({
+      startTime: c.startTime,
+      endTime: c.endTime,
+      text: c.text,
+    }));
+    const newCues = groupIntoSentences(rawCues);
+    set({
+      cues: newCues,
+      activeCueIndex: 0,
+      lastMarkerNotification: `✨ Đã nhận diện và gộp thành ${newCues.length} câu hoàn chỉnh (từ ${cues.length} mốc)!`,
+    });
     queueAutoSave(get);
   },
 

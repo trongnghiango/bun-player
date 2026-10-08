@@ -18,6 +18,7 @@ export const EditorDrawer: React.FC = () => {
   const shiftAllCues = usePlayerStore((s) => s.shiftAllCues);
   const autoMergeShort = usePlayerStore((s) => s.autoMergeShort);
   const autoSplitLong = usePlayerStore((s) => s.autoSplitLong);
+  const autoGroupSentences = usePlayerStore((s) => s.autoGroupSentences);
   const addCueAtCurrentTime = usePlayerStore((s) => s.addCueAtCurrentTime);
   const sentenceLoopTarget = usePlayerStore((s) => s.sentenceLoopTarget);
   const setSentenceLoopTarget = usePlayerStore((s) => s.setSentenceLoopTarget);
@@ -71,7 +72,7 @@ export const EditorDrawer: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200 select-none">
+    <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-slate-950/95 border-l border-slate-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200 select-none">
       {/* Drawer Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -202,14 +203,22 @@ export const EditorDrawer: React.FC = () => {
       {/* Quick Tools Bar */}
       <div className="px-4 py-2 bg-slate-900/40 border-b border-slate-800/80 flex items-center justify-between text-xs">
         <span className="text-slate-400">Tự động:</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={autoGroupSentences}
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition-colors cursor-pointer font-medium"
+            title="Tự động nhận diện câu hoàn chỉnh (gộp mốc karaoke màu sắc, từ lẻ lặp lại)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+            <span>Nhận diện câu</span>
+          </button>
+
           <button
             onClick={() => autoMergeShort(3)}
-            className="flex items-center gap-1.5 px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer font-medium"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer font-medium"
             title="Tự động tìm và gộp các câu thoại quá ngắn (< 3 từ)"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Gộp câu ngắn</span>
+            <span>Gộp ngắn</span>
           </button>
 
           <button

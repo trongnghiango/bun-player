@@ -103,3 +103,27 @@ test("deleteRecordingForCue removes recording from registry", () => {
   assert.strictEqual(state.recordedVoices[1], undefined);
   assert.strictEqual(state.recordedVoices[2], "blob:http://localhost/fake-audio-2");
 });
+test("autoGroupSentences collapses fragmented or repeating karaoke cues in store", () => {
+  usePlayerStore.setState({
+    cues: [
+      { id: 1, startTime: 10.0, endTime: 11.5, text: "Mrs. Rabbit had four little bunnies." },
+      { id: 2, startTime: 11.5, endTime: 12.5, text: "Mrs. Rabbit had four little bunnies." },
+      { id: 3, startTime: 12.5, endTime: 14.5, text: "Mrs. Rabbit had four little bunnies." },
+      { id: 4, startTime: 15.0, endTime: 18.0, text: "They lived in a hole." },
+    ],
+  });
+
+  usePlayerStore.getState().autoGroupSentences();
+  const state = usePlayerStore.getState();
+
+  assert.strictEqual(state.cues.length, 2);
+  assert.strictEqual(state.cues[0].id, 1);
+  assert.strictEqual(state.cues[0].startTime, 10.0);
+  assert.strictEqual(state.cues[0].endTime, 14.5);
+  assert.strictEqual(state.cues[0].text, "Mrs. Rabbit had four little bunnies.");
+
+  assert.strictEqual(state.cues[1].id, 2);
+  assert.strictEqual(state.cues[1].startTime, 15.0);
+  assert.strictEqual(state.cues[1].endTime, 18.0);
+  assert.strictEqual(state.cues[1].text, "They lived in a hole.");
+});
