@@ -79,6 +79,9 @@ export const VideoStage: React.FC = () => {
     usePlayerStore.setState({ seekRequest: null });
   }, [seekRequest]);
 
+  // Track active play promise to prevent DOMException AbortError and GStreamer pipeline lockup
+  const playPromiseRef = useRef<Promise<void> | null>(null);
+
   // Sync isPlaying state safely with native video element
   useEffect(() => {
     const video = videoRef.current;
@@ -86,18 +89,39 @@ export const VideoStage: React.FC = () => {
 
     if (isPlaying) {
       if (video.paused) {
-        const playPromise = video.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn("Video playback interrupted or waiting for user interaction:", err);
-            if (video.paused && usePlayerStore.getState().isPlaying) {
-              usePlayerStore.setState({ isPlaying: false });
-            }
-          });
+        const promise = video.play();
+        if (promise !== undefined) {
+          playPromiseRef.current = promise;
+          promise
+            .then(() => {
+              playPromiseRef.current = null;
+              // If user requested pause while play() was still resolving
+              if (!usePlayerStore.getState().isPlaying && !video.paused) {
+                video.pause();
+              }
+            })
+            .catch((err) => {
+              playPromiseRef.current = null;
+              // Benign AbortError caused by rapid subsequent pause(): do NOT override store!
+              if (err.name === "AbortError") return;
+              console.warn("Video playback error:", err);
+              if (video.paused && usePlayerStore.getState().isPlaying) {
+                usePlayerStore.setState({ isPlaying: false });
+              }
+            });
         }
       }
     } else {
-      if (!video.paused) {
+      if (playPromiseRef.current) {
+        // Play is in flight: wait for it to settle cleanly before calling pause()
+        playPromiseRef.current
+          .then(() => {
+            if (!usePlayerStore.getState().isPlaying && !video.paused) {
+              video.pause();
+            }
+          })
+          .catch(() => {});
+      } else if (!video.paused) {
         video.pause();
       }
     }
@@ -194,7 +218,7 @@ export const VideoStage: React.FC = () => {
 
           {/* Live Sentence Marking Banner ("Làm dấu") */}
           {pendingMarkerStart !== null && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-amber-950/95 border border-amber-400/80 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 z-30 animate-in fade-in zoom-in-95 duration-200">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-amber-950/95 border border-amber-400/80 px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 z-30 animate-in fade-in zoom-in-95 duration-200">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
               <div className="flex items-center gap-1.5 text-xs text-amber-200 font-bold">
                 <MapPin className="w-4 h-4 text-amber-400" />
@@ -213,14 +237,14 @@ export const VideoStage: React.FC = () => {
 
           {/* Fleeting Marker Notification Toast */}
           {lastMarkerNotification && (
-            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-slate-700/80 backdrop-blur-md px-4 py-1.5 rounded-full shadow-xl flex items-center gap-2 z-25 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-slate-700/80 px-4 py-1.5 rounded-full shadow-xl flex items-center gap-2 z-25 animate-in fade-in slide-in-from-top-2 duration-200">
               <span className="text-xs text-slate-100 font-semibold">{lastMarkerNotification}</span>
             </div>
           )}
 
           {/* Floating Recording Indicator for Kid Shadowing with Live VU Meter */}
           {isRecording && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-rose-950/95 border-2 border-rose-500/80 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 z-30 animate-in fade-in zoom-in-95 duration-200">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-rose-950/95 border-2 border-rose-500/80 px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 z-30 animate-in fade-in zoom-in-95 duration-200">
               <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
               
               <div className="flex items-center gap-2 text-xs text-rose-100 font-semibold">
@@ -259,7 +283,7 @@ export const VideoStage: React.FC = () => {
 
           {/* Floating Pill when Playing Recorded Voice */}
           {isPlayingRecording && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-950/95 border border-emerald-500/80 backdrop-blur-md px-4 py-1.5 rounded-full shadow-2xl flex items-center gap-2.5 z-30 animate-in fade-in zoom-in-95 duration-200">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-950/95 border border-emerald-500/80 px-4 py-1.5 rounded-full shadow-2xl flex items-center gap-2.5 z-30 animate-in fade-in zoom-in-95 duration-200">
               <Volume2 className="w-4 h-4 text-emerald-400 animate-bounce" />
               <span className="text-xs text-emerald-100 font-bold">
                 🔊 Đang phát lại giọng đọc của bé...
@@ -269,7 +293,7 @@ export const VideoStage: React.FC = () => {
 
           {/* Video Error Overlay with Easy Reconnect Button */}
           {videoError && (
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-10 animate-in fade-in duration-200">
+            <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center z-10 animate-in fade-in duration-200">
               <AlertCircle className="w-12 h-12 text-amber-400 mb-3" />
               <h4 className="text-lg font-bold text-slate-100 mb-1">Cần kết nối lại file Video</h4>
               <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
@@ -295,7 +319,7 @@ export const VideoStage: React.FC = () => {
           {/* Subtitle Box - Disappears by default to avoid kid distraction, toggleable on demand */}
           {showSubtitle && activeCue && (
             <div className="absolute bottom-6 left-0 right-0 px-6 flex justify-center pointer-events-none transition-all">
-              <div className="bg-slate-950/85 backdrop-blur-md border border-slate-700/60 text-white px-6 py-3 rounded-2xl shadow-2xl text-center max-w-3xl animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-slate-950/85 border border-slate-700/60 text-white px-6 py-3 rounded-2xl shadow-2xl text-center max-w-3xl animate-in fade-in zoom-in-95 duration-200">
                 <p className="text-xl md:text-2xl font-semibold tracking-wide text-amber-200 leading-snug drop-shadow-md">
                   {activeCue.text}
                 </p>
@@ -305,7 +329,7 @@ export const VideoStage: React.FC = () => {
         </div>
       ) : (
         /* Empty State for Kid & Parent */
-        <div className="w-full max-w-2xl p-8 rounded-3xl border-2 border-dashed border-slate-800 bg-slate-900/50 backdrop-blur-sm flex flex-col items-center justify-center text-center">
+        <div className="w-full max-w-2xl p-8 rounded-3xl border-2 border-dashed border-slate-800 bg-slate-900/50 flex flex-col items-center justify-center text-center">
           <div className="w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-5 text-amber-400">
             <Film className="w-10 h-10" />
           </div>

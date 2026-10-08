@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { HeaderBar } from "./components/KidPlayer/HeaderBar";
 import { VideoStage } from "./components/KidPlayer/VideoStage";
 import { SentencePagination } from "./components/KidPlayer/SentencePagination";
@@ -44,6 +44,8 @@ export const App: React.FC = () => {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
+  const lastSpaceTimeRef = useRef<number>(0);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -56,11 +58,21 @@ export const App: React.FC = () => {
         return;
       }
 
+      // Ignore auto-repeated key events (e.g. user holding down Space or any shortcut key)
+      if (e.repeat) {
+        e.preventDefault();
+        return;
+      }
+
       switch (e.code) {
-        case "Space":
+        case "Space": {
           e.preventDefault();
+          const now = Date.now();
+          if (now - lastSpaceTimeRef.current < 120) return;
+          lastSpaceTimeRef.current = now;
           setIsPlaying(!isPlaying);
           break;
+        }
         case "KeyR":
           e.preventDefault();
           replayCurrentCue();

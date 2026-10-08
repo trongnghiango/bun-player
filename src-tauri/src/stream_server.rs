@@ -4,6 +4,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::thread;
+use std::time::Duration;
 
 static STREAM_PORT: AtomicU16 = AtomicU16::new(0);
 
@@ -31,8 +32,8 @@ pub fn get_stream_port() -> u16 {
 
 fn handle_client(stream: &mut std::net::TcpStream) {
     let _ = stream.set_nodelay(true);
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(15)));
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(15)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
 
     let mut buffer = [0u8; 4096];
     let bytes_read = match stream.read(&mut buffer) {
@@ -47,7 +48,13 @@ fn handle_client(stream: &mut std::net::TcpStream) {
     };
 
     let parts: Vec<&str> = first_line.split_whitespace().collect();
-    if parts.len() < 2 || parts[0] != "GET" {
+    if parts.len() < 2 {
+        let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\n\r\n");
+        return;
+    }
+
+    let method = parts[0];
+    if method != "GET" && method != "HEAD" {
         let _ = stream.write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n");
         return;
     }
@@ -60,7 +67,6 @@ fn handle_client(stream: &mut std::net::TcpStream) {
         return;
     };
 
-    // Strip any trailing query parameters
     let raw_encoded_path = path_param.split('&').next().unwrap_or(path_param);
     let decoded_path = decode_percent(raw_encoded_path);
 
@@ -90,7 +96,7 @@ fn handle_client(stream: &mut std::net::TcpStream) {
     let mime_type = match ext.as_str() {
         "mp4" | "m4v" => "video/mp4",
         "webm" => "video/webm",
-        "mkv" => "video/webm", // Map MKV to webm so WebKit HTML5 element accepts it
+        "mkv" => "video/webm",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
@@ -98,7 +104,6 @@ fn handle_client(stream: &mut std::net::TcpStream) {
         _ => "video/mp4",
     };
 
-    // Parse Range header if present: Range: bytes=0-1048576
     let mut range_start: u64 = 0;
     let mut range_end: u64 = total_size.saturating_sub(1);
     let mut is_range = false;
@@ -133,11 +138,6 @@ fn handle_client(stream: &mut std::net::TcpStream) {
 
     let content_len = (range_end - range_start) + 1;
 
-    if file.seek(SeekFrom::Start(range_start)).is_err() {
-        let _ = stream.write_all(b"HTTP/1.1 500 Seek Failed\r\n\r\n");
-        return;
-    }
-
     let header = if is_range {
         format!(
             "HTTP/1.1 206 Partial Content\r\n\
@@ -165,7 +165,16 @@ fn handle_client(stream: &mut std::net::TcpStream) {
         return;
     }
 
-    // High-performance streaming: stream exact bytes directly via std::io::copy
+    // If HEAD request, we are done
+    if method == "HEAD" {
+        return;
+    }
+
+    // Seek and stream requested range
+    if file.seek(SeekFrom::Start(range_start)).is_err() {
+        return;
+    }
+
     let mut reader = file.take(content_len);
     let _ = std::io::copy(&mut reader, stream);
 }
